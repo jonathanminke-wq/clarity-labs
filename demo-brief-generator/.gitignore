@@ -1,0 +1,13 @@
+# Generated output files
+output/*.docx
+output/*.pdf
+output/*.json
+!output/.gitkeep
+
+# Research cache
+.cache/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
