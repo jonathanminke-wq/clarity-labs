@@ -102,23 +102,45 @@
     }
 
     function extractTitle(results, name) {
-        // 1. Check knowledgeGraph first
-        var kg = getKG(results);
-        if (kg.description) {
-            // KG description often has the role, e.g. "CEO of Astek"
-            var kgTitle = kg.description;
-            // If it's short enough to be a title, use it
-            if (kgTitle.length < 80) return kgTitle;
+        if (!results) return '';
+
+        // 1. Try parsing LinkedIn organic result titles FIRST (most reliable)
+        // LinkedIn titles: "Name - Title - Company | LinkedIn" or "Name - Title | LinkedIn"
+        if (results.organic) {
+            for (var k = 0; k < results.organic.length; k++) {
+                var orgTitle = results.organic[k].title || '';
+                var orgLink = results.organic[k].link || '';
+
+                // Check if this is a LinkedIn profile result (by URL or title)
+                var isLinkedIn = /linkedin\.com\/in\//i.test(orgLink) || /linkedin/i.test(orgTitle);
+                if (!isLinkedIn) continue;
+
+                // Split by common separators: " - ", " – ", " — ", " | "
+                var linkedParts = orgTitle.split(/\s+[-–—|]\s+/);
+                console.log('[DemoBrief] LinkedIn title parts:', linkedParts);
+
+                // Format: "Name - Title - Company | LinkedIn" → 4 parts
+                // Format: "Name - Title | LinkedIn" → 3 parts
+                // Format: "Name | LinkedIn" → 2 parts
+                if (linkedParts.length >= 3) {
+                    // Skip first part (name) and last part (usually "LinkedIn")
+                    // The title is in the middle
+                    var candidate = linkedParts[1].trim();
+                    if (candidate.length > 1 && candidate.length < 80 && !/linkedin/i.test(candidate)) {
+                        return candidate;
+                    }
+                }
+            }
         }
 
+        // 2. Check knowledgeGraph
+        var kg = getKG(results);
+        if (kg.description && kg.description.length < 80) return kg.description;
+
+        // 3. Scan all text for known title patterns
         var text = allSnippets(results);
-        // 2. Look for common title patterns in text
         var titlePatterns = [
-            // "Name - Title at Company" (LinkedIn format)
-            new RegExp(name.split(' ')[0] + '\\s+[A-Z]\\w*\\s*[-–—|·]\\s*(.{5,60})(?:\\s+[-–—|·]\\s|\\s+at\\s|$)', 'i'),
-            // "Title at Company"  or "Title, Company"
             /(?:^|\.\s+)((?:Chief|Vice|Senior|Head|Director|Manager|Lead|Principal|VP|SVP|EVP|AVP|CTO|CEO|CIO|CISO|CSO|COO|CFO|CPO|CDO|CMO|CRO)[^.]{3,50}?)(?:\.\s|\s+at\s|\s+@\s|$)/im,
-            // "is the Title" or "serves as Title"
             /(?:is\s+(?:the\s+)?|serves?\s+as\s+(?:the\s+)?)((?:Chief|Vice|Senior|Head|Director|Manager|Lead|Principal|VP|SVP|EVP|AVP|CTO|CEO|CIO|CISO|CSO|COO|CFO|CPO|CDO|CMO|CRO)[^.]{3,50})/i
         ];
         for (var i = 0; i < titlePatterns.length; i++) {
@@ -129,7 +151,7 @@
             }
         }
 
-        // 3. Keyword scan for known C-level/VP titles
+        // 4. Keyword scan for known C-level/VP titles anywhere in text
         var titles = [
             'Chief Information Security Officer', 'Chief Technology Officer', 'Chief Information Officer',
             'Chief Executive Officer', 'Chief Operating Officer', 'Chief Financial Officer',
@@ -142,26 +164,22 @@
             'Director of Security', 'Director of Engineering', 'Director of IT',
             'Director of Product', 'Director of Sales', 'Director of Operations',
             'CISO', 'CTO', 'CIO', 'CSO', 'CPO', 'CEO', 'COO', 'CFO', 'CDO', 'CMO', 'CRO',
-            'General Manager', 'Managing Director', 'Country Manager', 'Regional Director'
+            'General Manager', 'Managing Director', 'Country Manager', 'Regional Director',
+            'Founder', 'Co-Founder', 'President', 'Partner', 'Consultant', 'Advisor',
+            'Engineer', 'Architect', 'Analyst', 'Specialist', 'Coordinator'
         ];
         for (var j = 0; j < titles.length; j++) {
             if (text.indexOf(titles[j]) !== -1) return titles[j];
         }
 
-        // 4. LinkedIn title from organic result title: "Name - Title - Company | LinkedIn"
-        if (results && results.organic) {
-            for (var k = 0; k < results.organic.length; k++) {
-                var orgTitle = results.organic[k].title || '';
-                if (/linkedin/i.test(orgTitle)) {
-                    // "First Last - Title - Company | LinkedIn"
-                    var linkedParts = orgTitle.split(/\s*[-–—|]\s*/);
-                    if (linkedParts.length >= 3) {
-                        var candidate = linkedParts[1].trim();
-                        if (candidate.length > 2 && candidate.length < 80 && !/linkedin/i.test(candidate)) return candidate;
-                    }
-                }
-            }
+        // 5. Last resort: try to get ANYTHING from the first organic result snippet
+        // Look for "title at company" or "title chez company" (French) patterns
+        if (results.organic && results.organic[0]) {
+            var snippet = results.organic[0].snippet || '';
+            var atMatch = snippet.match(/(?:^|\.\s*|,\s*)([A-Z][a-zA-Z\s&\/]+?)\s+(?:at|chez|@|à)\s+/);
+            if (atMatch && atMatch[1].length > 3 && atMatch[1].length < 60) return atMatch[1].trim();
         }
+
         return '';
     }
 
@@ -172,21 +190,32 @@
 
         var text = allSnippets(results);
         var patterns = [
-            // "City, State" or "City, Country"
-            /(?:based in|located in|lives in|location[:\s]+|from)\s+([A-Z][a-zA-Z\s]+(?:,\s*[A-Za-z\s]+)?)/i,
-            // US city/state patterns
+            // "Greater X Area" (LinkedIn pattern — very common)
+            /((?:Greater\s+)?[A-Z][a-zA-ZÀ-ÿ]+(?:[\s-][A-Z][a-zA-ZÀ-ÿ]+)*\s+(?:Area|Metropolitan|Metro)(?:\s+Area)?)/,
+            // "based in / located in / from" patterns
+            /(?:based in|located in|lives in|location[:\s]+|from)\s+([A-ZÀ-ÿ][a-zA-ZÀ-ÿ\s]+(?:,\s*[A-Za-zÀ-ÿ\s]+)?)/i,
+            // "City, State" (US)
             /([A-Z][a-z]+(?:\s[A-Z][a-z]+)?,\s*(?:Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|New\s+Hampshire|New\s+Jersey|New\s+Mexico|New\s+York|North\s+Carolina|North\s+Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode\s+Island|South\s+Carolina|South\s+Dakota|Tennessee|Texas|Utah|Vermont|Virginia|Washington|West\s+Virginia|Wisconsin|Wyoming|AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC))/,
-            // "Greater X Area" (LinkedIn pattern)
-            /((?:Greater\s+)?[A-Z][a-z]+(?:\s[A-Z][a-z]+)?\s+(?:Area|Metropolitan|Metro)(?:\s+Area)?)/,
-            // International cities with country
-            /([A-Z][a-z]+(?:\s[A-Z][a-z]+)?,\s*(?:France|Germany|UK|United Kingdom|Canada|Australia|Israel|India|Japan|Singapore|Netherlands|Sweden|Switzerland|Spain|Italy|Poland|Ireland|Brazil|Mexico|Belgium|Austria|Denmark|Norway|Finland|Czech Republic|Portugal|Romania|Hungary|Greece|Turkey|South Korea|New Zealand))/i
+            // "City, Country" (international — include French regions)
+            /([A-ZÀ-ÿ][a-zA-ZÀ-ÿ]+(?:[\s-][A-ZÀ-ÿ][a-zA-ZÀ-ÿ]+)*,\s*(?:France|Germany|UK|United Kingdom|Canada|Australia|Israel|India|Japan|Singapore|Netherlands|Sweden|Switzerland|Spain|Italy|Poland|Ireland|Brazil|Mexico|Belgium|Austria|Denmark|Norway|Finland|Czech Republic|Portugal|Romania|Hungary|Greece|Turkey|South Korea|New Zealand|Île-de-France|Île de France))/i,
+            // LinkedIn snippet location patterns: "Location · City" or just standalone city names
+            /(?:·|•|\|)\s*([A-ZÀ-ÿ][a-zA-ZÀ-ÿ\s,-]+(?:Area|Region|France|Germany|UK|Israel|India|CA|NY|TX|WA|IL|MA|PA|OH|GA|FL))/
         ];
         for (var i = 0; i < patterns.length; i++) {
             var m = text.match(patterns[i]);
             if (m) {
-                var loc = m[1].trim().replace(/\.$/, '');
+                var loc = m[1].trim().replace(/\.$/, '').replace(/,\s*$/, '');
                 if (loc.length > 2 && loc.length < 60) return loc;
             }
+        }
+
+        // Fallback: look for well-known city names directly
+        var cities = ['San Francisco', 'New York', 'London', 'Paris', 'Tel Aviv', 'Berlin', 'Amsterdam', 'Singapore',
+            'Toronto', 'Sydney', 'Seattle', 'Boston', 'Austin', 'Chicago', 'Los Angeles', 'Denver', 'Atlanta',
+            'Dublin', 'Munich', 'Stockholm', 'Zurich', 'Tokyo', 'Bangalore', 'Mumbai', 'Delhi',
+            'Lyon', 'Marseille', 'Toulouse', 'Nantes', 'Bordeaux', 'Lille', 'Strasbourg', 'Rennes'];
+        for (var j = 0; j < cities.length; j++) {
+            if (text.indexOf(cities[j]) !== -1) return cities[j];
         }
         return '';
     }
@@ -696,29 +725,45 @@
         await delay(200);
         setProgress('parse', 'done', name);
 
-        // Step 2: Prospect profile — use site: to get LinkedIn result
+        // Step 2: Prospect profile — try site:linkedin first, then broader search
         setProgress('prospect', 'active');
-        var prospectQuery = 'site:linkedin.com/in ' + name + ' ' + companyName;
+        var prospectQuery = 'site:linkedin.com/in "' + name + '" ' + companyName;
         try {
             var prospectResults = await serperSearch(prospectQuery, apiKey);
-            console.log('[DemoBrief] Prospect results:', prospectResults);
+            console.log('[DemoBrief] Prospect results (site:):', prospectResults);
+
+            // If site: query returned 0 organic results, try a broader search
+            var organicCount = (prospectResults && prospectResults.organic) ? prospectResults.organic.length : 0;
+            if (organicCount === 0) {
+                var fallbackQuery = '"' + name + '" ' + companyName + ' LinkedIn';
+                console.log('[DemoBrief] site: returned 0 results, trying:', fallbackQuery);
+                addDebugResponse('Prospect (site: empty)', prospectQuery, prospectResults, {});
+                prospectQuery = fallbackQuery;
+                prospectResults = await serperSearch(fallbackQuery, apiKey);
+                console.log('[DemoBrief] Prospect results (fallback):', prospectResults);
+            }
 
             data.prospect.title = extractTitle(prospectResults, name);
             data.prospect.location = extractLocation(prospectResults);
             data.prospect.certifications = extractCerts(prospectResults);
             data.prospect.work_history = extractWorkHistory(prospectResults, name);
 
+            // Show first result title for debugging
+            var firstTitle = (prospectResults && prospectResults.organic && prospectResults.organic[0])
+                ? prospectResults.organic[0].title : '(no results)';
+
             addDebugResponse('Prospect Profile', prospectQuery, prospectResults, {
                 title: data.prospect.title,
                 location: data.prospect.location,
                 certs: data.prospect.certifications,
-                work_history: data.prospect.work_history
+                work_history: data.prospect.work_history,
+                _firstResultTitle: firstTitle
             });
 
             var found = [];
             if (data.prospect.title) found.push(data.prospect.title);
             if (data.prospect.location) found.push(data.prospect.location);
-            setProgress('prospect', 'done', found.join(' | ') || 'Limited data');
+            setProgress('prospect', 'done', found.join(' | ') || 'Top result: ' + firstTitle.substring(0, 60));
         } catch (e) {
             console.error('[DemoBrief] Prospect search error:', e);
             addDebugResponse('Prospect Profile', prospectQuery, { error: e.message }, {});
@@ -781,8 +826,10 @@
                 product: data.company.product_description ? data.company.product_description.substring(0, 60) : ''
             });
 
+            var companyFirstTitle = (companyResults && companyResults.organic && companyResults.organic[0])
+                ? companyResults.organic[0].title : '(no results)';
             var companyFound = [data.company.industry, data.company.headquarters, data.company.employee_count ? data.company.employee_count + ' emp' : ''].filter(Boolean);
-            setProgress('company', 'done', companyFound.join(' | ') || 'Limited data');
+            setProgress('company', 'done', companyFound.join(' | ') || 'Top result: ' + companyFirstTitle.substring(0, 60));
         } catch (e) {
             console.error('[DemoBrief] Company search error:', e);
             addDebugResponse('Company Overview', companyQuery, { error: e.message }, {});
@@ -855,8 +902,14 @@
             setProgress('incidents', 'error', e.message);
         }
 
-        // Render debug panel
+        // Render debug panel and auto-open it
         renderDebugPanel();
+        var debugPanel = document.getElementById('debug-panel');
+        var debugToggleEl = document.getElementById('debug-toggle');
+        if (debugPanel) debugPanel.style.display = '';
+        if (debugToggleEl) {
+            debugToggleEl.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Hide raw API responses';
+        }
 
         console.log('[DemoBrief] Research complete. Data:', data);
         return data;
