@@ -12,11 +12,14 @@
 
 <!-- Nav -->
 <nav class="nav">
-    <a href="../../" class="nav-brand">
+    <a href="../../index.html" class="nav-brand">
         <img src="https://cdn.prod.website-files.com/68ca65f64a04c90f13846d37/68ca65f64a04c90f13846dfe_Clarity%20Logo.svg" alt="Clarity" class="nav-logo">
         <span class="nav-divider"></span>
         <span class="nav-label">Demo Brief Generator</span>
     </a>
+    <button type="button" class="nav-settings-btn" id="open-settings-btn" title="API Settings">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+    </button>
 </nav>
 
 <!-- Main Content -->
@@ -26,78 +29,89 @@
     <div class="panel panel-form">
         <div class="panel-header">
             <h2>New Brief</h2>
-            <p>Fill in prospect details to generate a professional demo brief document.</p>
+            <p>Paste a LinkedIn URL to auto-research the prospect and generate a professional brief.</p>
         </div>
 
         <form id="brief-form" autocomplete="off">
-            <!-- Required Fields -->
+            <!-- Primary Input -->
             <div class="form-section">
-                <div class="form-section-label">Required</div>
+                <div class="form-section-label">Start Here</div>
 
                 <div class="form-group">
-                    <label for="prospect-name">Prospect Name</label>
-                    <input type="text" id="prospect-name" placeholder="e.g. Anthony Scarfe" required>
+                    <label for="linkedin-url">LinkedIn URL</label>
+                    <div class="input-with-icon">
+                        <svg class="input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-4 0v7h-4v-7a6 6 0 016-6z"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/></svg>
+                        <input type="url" id="linkedin-url" placeholder="https://linkedin.com/in/prospect-name" required>
+                    </div>
+                    <div class="input-hint" id="linkedin-hint"></div>
                 </div>
 
-                <div class="form-group">
-                    <label for="company-name">Company Name</label>
-                    <input type="text" id="company-name" placeholder="e.g. Elastic" required>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="company-name">Company Name</label>
+                        <input type="text" id="company-name" placeholder="e.g. Elastic" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="sdr-name">SDR Name</label>
+                        <input type="text" id="sdr-name" placeholder="e.g. Yoni" required>
+                    </div>
                 </div>
 
-                <div class="form-group">
-                    <label for="sdr-name">SDR Name</label>
-                    <input type="text" id="sdr-name" placeholder="e.g. Yoni" required>
+                <button type="button" class="btn-research" id="research-btn">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    Research &amp; Generate
+                </button>
+            </div>
+
+            <!-- Research Progress -->
+            <div class="research-progress" id="research-progress" style="display: none;">
+                <div class="form-section-label">Research Progress</div>
+                <div class="progress-list" id="progress-list">
+                    <!-- Populated by JS -->
                 </div>
             </div>
 
-            <!-- Prospect Details -->
+            <!-- Prospect Details (auto-populated, editable) -->
             <div class="form-section">
                 <button type="button" class="form-section-toggle" data-section="prospect-details">
                     <span class="form-section-label">Prospect Details</span>
                     <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
                 </button>
-
                 <div class="form-section-body" id="prospect-details">
+                    <div class="form-group">
+                        <label for="prospect-name">Full Name</label>
+                        <input type="text" id="prospect-name" placeholder="Auto-detected from LinkedIn URL">
+                    </div>
                     <div class="form-group">
                         <label for="prospect-title">Title / Role</label>
                         <input type="text" id="prospect-title" placeholder="e.g. Chief Information Security Officer">
                     </div>
-
-                    <div class="form-group">
-                        <label for="prospect-location">Location</label>
-                        <input type="text" id="prospect-location" placeholder="e.g. San Francisco, CA">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="prospect-location">Location</label>
+                            <input type="text" id="prospect-location" placeholder="e.g. San Francisco, CA">
+                        </div>
+                        <div class="form-group">
+                            <label for="prospect-tenure">Tenure</label>
+                            <input type="text" id="prospect-tenure" placeholder="e.g. 3 years">
+                        </div>
                     </div>
-
-                    <div class="form-group">
-                        <label for="prospect-tenure">Tenure</label>
-                        <input type="text" id="prospect-tenure" placeholder="e.g. 3 years">
-                    </div>
-
-                    <div class="form-group">
-                        <label for="prospect-linkedin">LinkedIn URL</label>
-                        <input type="url" id="prospect-linkedin" placeholder="https://linkedin.com/in/...">
-                    </div>
-
                     <div class="form-group">
                         <label for="prospect-team">Team</label>
                         <input type="text" id="prospect-team" placeholder="e.g. Security & IT (~45 people)">
                     </div>
-
                     <div class="form-group">
                         <label for="prospect-certs">Certifications <span class="hint">comma-separated</span></label>
                         <input type="text" id="prospect-certs" placeholder="e.g. CISSP, CISM, CCSP">
                     </div>
-
                     <div class="form-group">
                         <label for="prospect-history">Work History <span class="hint">one per line</span></label>
                         <textarea id="prospect-history" rows="4" placeholder="Elastic - CISO (2023-Present)&#10;Palo Alto Networks - VP Security (2019-2023)"></textarea>
                     </div>
-
                     <div class="form-group">
                         <label for="prospect-achievements">Achievements <span class="hint">one per line</span></label>
                         <textarea id="prospect-achievements" rows="3" placeholder="Led zero-trust transformation across 3,000+ employees&#10;Keynote speaker at RSA Conference 2025"></textarea>
                     </div>
-
                     <div class="form-group">
                         <label>Published Content</label>
                         <div id="published-content-list" class="repeater-list"></div>
@@ -115,7 +129,6 @@
                     <span class="form-section-label">Company Details</span>
                     <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
                 </button>
-
                 <div class="form-section-body" id="company-details">
                     <div class="form-row">
                         <div class="form-group">
@@ -127,7 +140,6 @@
                             <input type="text" id="company-size" placeholder="e.g. 3,200 employees">
                         </div>
                     </div>
-
                     <div class="form-row">
                         <div class="form-group">
                             <label for="company-hq">Headquarters</label>
@@ -138,7 +150,6 @@
                             <input type="text" id="company-founded" placeholder="e.g. 2012">
                         </div>
                     </div>
-
                     <div class="form-row">
                         <div class="form-group">
                             <label for="company-ticker">Stock Ticker</label>
@@ -149,17 +160,14 @@
                             <input type="url" id="company-website" placeholder="https://...">
                         </div>
                     </div>
-
                     <div class="form-group">
                         <label for="company-product">Product Description</label>
                         <textarea id="company-product" rows="2" placeholder="Brief description of products/services"></textarea>
                     </div>
-
                     <div class="form-group">
                         <label for="company-customers">Customers</label>
                         <input type="text" id="company-customers" placeholder="e.g. Cisco, eBay, Goldman Sachs, Microsoft">
                     </div>
-
                     <div class="form-group">
                         <label for="company-culture">Culture</label>
                         <input type="text" id="company-culture" placeholder="e.g. Distributed-first, open source values">
@@ -173,7 +181,6 @@
                     <span class="form-section-label">Hiring & Recruitment</span>
                     <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
                 </button>
-
                 <div class="form-section-body" id="hiring-details">
                     <div class="form-row">
                         <div class="form-group">
@@ -185,7 +192,6 @@
                             <input type="text" id="company-growth" placeholder="e.g. 12% YoY">
                         </div>
                     </div>
-
                     <div class="form-row">
                         <div class="form-group">
                             <label for="company-ats">ATS System</label>
@@ -209,12 +215,10 @@
                             <input type="text" id="company-remote-jobs" placeholder="e.g. 89">
                         </div>
                     </div>
-
                     <div class="form-group">
                         <label for="company-hiring-activity">Hiring Activity</label>
                         <input type="text" id="company-hiring-activity" placeholder="e.g. Active hiring, 150+ open positions">
                     </div>
-
                     <div class="form-group">
                         <label for="company-team-structure">Team Structure</label>
                         <input type="text" id="company-team-structure" placeholder="e.g. Engineering (1,200), Sales (800), G&A (500)">
@@ -228,7 +232,6 @@
                     <span class="form-section-label">Identity & Security</span>
                     <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
                 </button>
-
                 <div class="form-section-body" id="security-details">
                     <div class="form-group">
                         <label>Identity & Access Tools</label>
@@ -238,12 +241,10 @@
                             Add Tool
                         </button>
                     </div>
-
                     <div class="form-group">
                         <label for="company-compliance">Compliance Standards</label>
                         <input type="text" id="company-compliance" placeholder="e.g. SOC 2 Type II, ISO 27001, GDPR, FedRAMP">
                     </div>
-
                     <div class="form-group">
                         <label>Security Incidents</label>
                         <div id="incidents-list" class="repeater-list"></div>
@@ -252,7 +253,6 @@
                             Add Incident
                         </button>
                     </div>
-
                     <div class="form-group">
                         <label for="hiring-security-notes">Hiring Security Notes <span class="hint">one per line</span></label>
                         <textarea id="hiring-security-notes" rows="2" placeholder="e.g. Uses multi-step identity verification for remote hires"></textarea>
@@ -322,23 +322,45 @@
                 <line x1="16" y1="17" x2="8" y2="17"/>
                 <polyline points="10 9 9 9 8 9"/>
             </svg>
-            <p>Fill in the form and click <strong>Generate Brief</strong> to preview your document.</p>
+            <p>Paste a LinkedIn URL and click <strong>Research &amp; Generate</strong> to get started.</p>
         </div>
 
         <!-- Document Preview -->
         <div class="preview-doc" id="preview-doc" style="display: none;">
-            <div class="doc-page" id="doc-page">
-                <!-- Populated by JS -->
-            </div>
+            <div class="doc-page" id="doc-page"></div>
         </div>
 
-        <!-- Generating State -->
+        <!-- Researching State -->
         <div class="preview-loading" id="preview-loading" style="display: none;">
             <div class="spinner"></div>
-            <p>Generating document...</p>
+            <p id="preview-loading-text">Researching prospect...</p>
         </div>
     </div>
 
+</div>
+
+<!-- Settings Modal -->
+<div class="modal-overlay" id="settings-modal" style="display: none;">
+    <div class="modal">
+        <div class="modal-header">
+            <h3>API Settings</h3>
+            <button type="button" class="modal-close" id="close-settings-btn">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        </div>
+        <div class="modal-body">
+            <p class="modal-description">Enter your Serper API key to enable automated web research. Get a free key at <a href="https://serper.dev" target="_blank">serper.dev</a> (2,500 free searches).</p>
+            <div class="form-group">
+                <label for="serper-api-key">Serper API Key</label>
+                <input type="password" id="serper-api-key" placeholder="Enter your API key">
+            </div>
+            <div class="api-status" id="api-status"></div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn-secondary" id="test-api-btn">Test Connection</button>
+            <button type="button" class="btn-primary" id="save-settings-btn" style="flex: none; padding: 10px 24px;">Save</button>
+        </div>
+    </div>
 </div>
 
 <script src="https://unpkg.com/docx@9.5.0/build/index.umd.js"></script>
