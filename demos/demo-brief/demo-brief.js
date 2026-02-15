@@ -696,6 +696,201 @@
         return '';
     }
 
+    // ══════════════════════════════════════════
+    // Tenure Extraction (company tenure + role tenure)
+    // ══════════════════════════════════════════
+    function extractTenure(results, name, companyName) {
+        if (!results) return { companyTenure: '', roleTenure: '' };
+        var text = allSnippets(results);
+        var now = new Date();
+        var companyLower = (companyName || '').toLowerCase();
+
+        var monthMap = {
+            'jan': 0, 'january': 0, 'feb': 1, 'february': 1, 'mar': 2, 'march': 2,
+            'apr': 3, 'april': 3, 'may': 4, 'jun': 5, 'june': 5,
+            'jul': 6, 'july': 6, 'aug': 7, 'august': 7, 'sep': 8, 'september': 8,
+            'oct': 9, 'october': 9, 'nov': 10, 'november': 10, 'dec': 11, 'december': 11
+        };
+
+        function parseDateStr(s) {
+            if (!s) return null;
+            s = s.trim();
+            if (/present|current/i.test(s)) return now;
+            var my = s.match(/(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{4})/i);
+            if (my) { var mo = monthMap[my[1].toLowerCase().substring(0, 3)]; return new Date(parseInt(my[2]), mo !== undefined ? mo : 0, 1); }
+            var yr = s.match(/(\d{4})/);
+            if (yr) return new Date(parseInt(yr[1]), 0, 1);
+            return null;
+        }
+
+        function formatDuration(startDate, endDate) {
+            if (!startDate || !endDate) return '';
+            var months = (endDate.getFullYear() - startDate.getFullYear()) * 12 + (endDate.getMonth() - startDate.getMonth());
+            if (months < 0) return '';
+            var years = Math.floor(months / 12);
+            var rem = months % 12;
+            if (years === 0 && rem === 0) return 'Less than a month';
+            if (years === 0) return rem + (rem === 1 ? ' month' : ' months');
+            if (rem === 0) return years + (years === 1 ? ' year' : ' years');
+            return years + (years === 1 ? ' year' : ' years') + ', ' + rem + (rem === 1 ? ' month' : ' months');
+        }
+
+        var companyTenure = '';
+        var roleTenure = '';
+
+        // Strategy 1: Parse structured work history "Company - Role (Date - Date)"
+        var workPattern = /([A-Z][a-zA-Z &.']+)\s*[-–—]\s*([A-Z][a-zA-Z &\/.']+)\s*\(((?:(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+)?\d{4})\s*[-–—]\s*(Present|(?:(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+)?\d{4})\)/gi;
+        var entries = [];
+        var m;
+        while ((m = workPattern.exec(text)) !== null) {
+            entries.push({ company: m[1].trim(), role: m[2].trim(), startStr: m[3], endStr: m[4] });
+        }
+
+        // Find entries matching the current company
+        var companyEntries = entries.filter(function (e) {
+            return e.company.toLowerCase().indexOf(companyLower) !== -1 || companyLower.indexOf(e.company.toLowerCase()) !== -1;
+        });
+
+        if (companyEntries.length > 0) {
+            companyEntries.sort(function (a, b) {
+                var aD = parseDateStr(a.startStr), bD = parseDateStr(b.startStr);
+                return (aD && bD) ? aD - bD : 0;
+            });
+            var earliestStart = parseDateStr(companyEntries[0].startStr);
+            companyTenure = formatDuration(earliestStart, now);
+
+            // Current role = most recent entry that ends with "Present"
+            var currentRole = companyEntries.filter(function (e) { return /present/i.test(e.endStr); });
+            if (currentRole.length > 0) {
+                var latest = currentRole[currentRole.length - 1];
+                roleTenure = formatDuration(parseDateStr(latest.startStr), now);
+            }
+        }
+
+        // Strategy 2: Look for LinkedIn-style duration text "X yrs Y mos" near company name
+        if (!companyTenure) {
+            var idx = text.toLowerCase().indexOf(companyLower);
+            if (idx !== -1) {
+                var context = text.substring(idx, Math.min(text.length, idx + 500));
+                // LinkedIn shows "3 yrs 5 mos" or "3 years 5 months" or "1 yr 2 mos"
+                var durMatch = context.match(/(\d+)\s*(?:years?|yrs?)\s*(?:,?\s*(\d+)\s*(?:months?|mos?))?/i);
+                if (durMatch) {
+                    var yrs = parseInt(durMatch[1]);
+                    var mos = durMatch[2] ? parseInt(durMatch[2]) : 0;
+                    if (mos === 0) companyTenure = yrs + (yrs === 1 ? ' year' : ' years');
+                    else companyTenure = yrs + (yrs === 1 ? ' year' : ' years') + ', ' + mos + (mos === 1 ? ' month' : ' months');
+                } else {
+                    var moOnly = context.match(/(\d+)\s*(?:months?|mos?)/i);
+                    if (moOnly) companyTenure = parseInt(moOnly[1]) + ' months';
+                }
+            }
+        }
+
+        // Strategy 3: Look for generic date ranges with the company nearby
+        if (!companyTenure) {
+            var dateRangePattern = /((?:(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+)?\d{4})\s*[-–—]\s*(Present|(?:(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+)?\d{4})/gi;
+            var allRanges = [];
+            while ((m = dateRangePattern.exec(text)) !== null) {
+                allRanges.push({ startStr: m[1], endStr: m[2], index: m.index });
+            }
+            // Find ranges near the company name
+            var companyIdx = text.toLowerCase().indexOf(companyLower);
+            if (companyIdx !== -1) {
+                var nearby = allRanges.filter(function (r) { return Math.abs(r.index - companyIdx) < 300; });
+                if (nearby.length > 0) {
+                    // Use the first range near the company as company tenure
+                    var range = nearby[0];
+                    var start = parseDateStr(range.startStr);
+                    var end = parseDateStr(range.endStr);
+                    companyTenure = formatDuration(start, end || now);
+                }
+            }
+        }
+
+        console.log('[DemoBrief] Tenure extraction:', { companyTenure: companyTenure, roleTenure: roleTenure });
+        return { companyTenure: companyTenure, roleTenure: roleTenure };
+    }
+
+    // ══════════════════════════════════════════
+    // Industry Extraction from LinkedIn Company Page
+    // ══════════════════════════════════════════
+    function extractIndustryFromLinkedIn(results) {
+        if (!results) return '';
+        var text = allSnippets(results);
+
+        // LinkedIn company pages show industry in snippets like "Industry: Software Development"
+        // or "Software Development · Company Size: 1,001-5,000"
+        var patterns = [
+            /(?:industry|industries)[:\s]+([A-ZÀ-ÿ][a-zA-ZÀ-ÿ\s&\/,]+?)(?:\s*[·|•]|\s*\.\s|$)/im,
+            /^([A-Z][a-zA-Z\s&\/]+?)\s*[·|•]\s*(?:company\s+size|[\d,]+\s*[-–]\s*[\d,]+\s*employees)/im,
+            /(?:specialties|specialities|specializing in|focused on)[:\s]+([A-ZÀ-ÿ][a-zA-ZÀ-ÿ\s&\/,]+?)(?:\s*\.\s|$)/im
+        ];
+        for (var i = 0; i < patterns.length; i++) {
+            var m = text.match(patterns[i]);
+            if (m && m[1]) {
+                var ind = m[1].trim().replace(/[.,;]$/, '');
+                if (ind.length > 2 && ind.length < 60) return ind;
+            }
+        }
+
+        // Also check individual snippets for LinkedIn company page format
+        if (results.organic) {
+            for (var j = 0; j < results.organic.length; j++) {
+                var snippet = results.organic[j].snippet || '';
+                var link = results.organic[j].link || '';
+                if (/linkedin\.com\/company/i.test(link)) {
+                    // LinkedIn company snippets often have: "Industry\nSoftware Development" or "Software Development · San Francisco, CA"
+                    var indMatch = snippet.match(/(?:Industry\s*[:.]?\s*)([\w\s&\/]+?)(?:\s*[·|•\n]|$)/i);
+                    if (indMatch && indMatch[1].trim().length > 2) return indMatch[1].trim();
+                    // Try first line which is often the industry
+                    var lines = snippet.split(/\s*[·•|]\s*/);
+                    if (lines.length >= 2) {
+                        var firstPart = lines[0].trim();
+                        // Check if this looks like an industry (not a name or sentence)
+                        if (firstPart.length > 2 && firstPart.length < 50 && !/^\d/.test(firstPart) && !/^http/i.test(firstPart)) {
+                            return firstPart;
+                        }
+                    }
+                }
+            }
+        }
+        return '';
+    }
+
+    // ══════════════════════════════════════════
+    // Remote Jobs Extraction from LinkedIn Jobs
+    // ══════════════════════════════════════════
+    function extractRemoteJobsFromLinkedIn(results) {
+        if (!results) return '';
+        var text = allSnippets(results);
+
+        // LinkedIn jobs pages show count like "89 results" or "89 jobs" or "showing 1-25 of 89"
+        var patterns = [
+            /(\d[\d,]*)\s*(?:\+\s*)?(?:remote|work from home|wfh)\s*(?:jobs?|positions?|roles?|openings?|results?)/i,
+            /(\d[\d,]*)\s*(?:\+\s*)?(?:jobs?|positions?|roles?|openings?|results?)\s*(?:for\s+)?(?:remote|work from home)/i,
+            /(?:showing|found|displaying)\s*(?:\d+\s*[-–]\s*\d+\s*of\s*)?(\d[\d,]*)\s*(?:remote\s+)?(?:jobs?|results?|positions?)/i,
+            /(\d[\d,]*)\s*(?:\+\s*)?(?:open\s+)?(?:remote\s+)?(?:jobs?|positions?|roles?|openings?)/i,
+            /(\d[\d,]*)\s*results?/i
+        ];
+        for (var i = 0; i < patterns.length; i++) {
+            var m = text.match(patterns[i]);
+            if (m && m[1]) {
+                var count = m[1].replace(/,/g, '');
+                if (parseInt(count) > 0) return m[1] + ' remote roles';
+            }
+        }
+
+        // Also check titles for job counts
+        if (results.organic) {
+            for (var j = 0; j < results.organic.length; j++) {
+                var title = results.organic[j].title || '';
+                var countMatch = title.match(/(\d[\d,]*)\s*(?:\+\s*)?(?:remote|wfh)?\s*(?:jobs?|positions?|openings?)/i);
+                if (countMatch) return countMatch[1] + ' remote roles';
+            }
+        }
+        return '';
+    }
+
     function extractCompanySizeFromLinkedIn(results) {
         if (!results) return '';
         var text = allSnippets(results);
@@ -876,7 +1071,8 @@
             prospect: {
                 name: name,
                 company: companyName,
-                title: '', location: '', tenure: '',
+                title: '', location: '',
+                company_tenure: '', role_tenure: '',
                 linkedin_url: parsed.url,
                 team: '', certifications: [],
                 work_history: [], achievements: [],
@@ -921,6 +1117,24 @@
             data.prospect.team = extractTeam(prospectResults, name);
             data.prospect.achievements = extractAchievements(prospectResults, name);
 
+            // Extract tenure (time at company + time in current role)
+            var tenure = extractTenure(prospectResults, name, companyName);
+            data.prospect.company_tenure = tenure.companyTenure;
+            data.prospect.role_tenure = tenure.roleTenure;
+
+            // If tenure not found from main results, try a focused LinkedIn search
+            if (!data.prospect.company_tenure) {
+                var tenureQuery = '"' + name + '" "' + companyName + '" LinkedIn experience';
+                var tenureResults = await serperSearch(tenureQuery, apiKey);
+                var tenure2 = extractTenure(tenureResults, name, companyName);
+                if (tenure2.companyTenure) data.prospect.company_tenure = tenure2.companyTenure;
+                if (tenure2.roleTenure) data.prospect.role_tenure = tenure2.roleTenure;
+                addDebugResponse('Tenure (follow-up)', tenureQuery, tenureResults, {
+                    company_tenure: data.prospect.company_tenure,
+                    role_tenure: data.prospect.role_tenure
+                });
+            }
+
             // Show first result title for debugging
             var firstTitle = (prospectResults && prospectResults.organic && prospectResults.organic[0])
                 ? prospectResults.organic[0].title : '(no results)';
@@ -928,6 +1142,8 @@
             addDebugResponse('Prospect Profile', prospectQuery, prospectResults, {
                 title: data.prospect.title,
                 location: data.prospect.location,
+                company_tenure: data.prospect.company_tenure,
+                role_tenure: data.prospect.role_tenure,
                 certs: data.prospect.certifications,
                 work_history: data.prospect.work_history,
                 team: data.prospect.team,
@@ -1015,6 +1231,31 @@
                 employees: data.company.employee_count,
                 product: data.company.product_description ? data.company.product_description.substring(0, 60) : ''
             });
+
+            // If industry not found, try LinkedIn company page search
+            if (!data.company.industry) {
+                var linkedInIndustryQuery = 'site:linkedin.com/company "' + companyName + '"';
+                var linkedInIndustryResults = await serperSearch(linkedInIndustryQuery, apiKey);
+                data.company.industry = extractIndustryFromLinkedIn(linkedInIndustryResults);
+                // If still not found, try broader LinkedIn company search
+                if (!data.company.industry) {
+                    data.company.industry = extractIndustry(linkedInIndustryResults);
+                }
+                addDebugResponse('Industry (LinkedIn company)', linkedInIndustryQuery, linkedInIndustryResults, {
+                    industry: data.company.industry
+                });
+
+                // If still no industry, try a focused industry search
+                if (!data.company.industry) {
+                    var industryQuery = companyName + ' industry sector';
+                    var industryResults = await serperSearch(industryQuery, apiKey);
+                    data.company.industry = extractIndustry(industryResults);
+                    if (!data.company.industry) data.company.industry = extractIndustryFromLinkedIn(industryResults);
+                    addDebugResponse('Industry (follow-up)', industryQuery, industryResults, {
+                        industry: data.company.industry
+                    });
+                }
+            }
 
             // If HQ or founded still missing, try a focused follow-up search
             if (!data.company.headquarters || !data.company.founded) {
@@ -1131,6 +1372,35 @@
             if (!data.company.open_remote_jobs) {
                 var jobMatch = remoteText.match(/(\d+)\s*(?:\+\s*)?(?:open\s+)?(?:jobs?|positions?|roles?|openings?)/i);
                 if (jobMatch) data.company.open_remote_jobs = jobMatch[1] + ' open roles';
+            }
+
+            // If remote jobs not found, search LinkedIn jobs page specifically
+            if (!data.company.open_remote_jobs) {
+                try {
+                    var linkedInJobsQuery = 'site:linkedin.com/jobs "' + companyName + '" remote';
+                    var linkedInJobsResults = await serperSearch(linkedInJobsQuery, apiKey);
+                    data.company.open_remote_jobs = extractRemoteJobsFromLinkedIn(linkedInJobsResults);
+                    addDebugResponse('Remote Jobs (LinkedIn)', linkedInJobsQuery, linkedInJobsResults, {
+                        remote_jobs: data.company.open_remote_jobs
+                    });
+
+                    // If still not found, try company LinkedIn page for jobs count
+                    if (!data.company.open_remote_jobs) {
+                        var linkedInJobsQuery2 = companyName + ' LinkedIn remote jobs open positions';
+                        var linkedInJobsResults2 = await serperSearch(linkedInJobsQuery2, apiKey);
+                        data.company.open_remote_jobs = extractRemoteJobsFromLinkedIn(linkedInJobsResults2);
+                        if (!data.company.open_remote_jobs) {
+                            var remoteText2 = allSnippets(linkedInJobsResults2);
+                            var rm2 = remoteText2.match(/(\d[\d,]*)\s*(?:\+\s*)?(?:remote|work from home)\s*(?:jobs?|positions?|roles?|openings?)/i);
+                            if (rm2) data.company.open_remote_jobs = rm2[1] + ' remote roles';
+                        }
+                        addDebugResponse('Remote Jobs (broad)', linkedInJobsQuery2, linkedInJobsResults2, {
+                            remote_jobs: data.company.open_remote_jobs
+                        });
+                    }
+                } catch (e) {
+                    console.error('[DemoBrief] LinkedIn jobs search error:', e);
+                }
             }
 
             addDebugResponse('Hiring', hiringQuery, hiringResults, {
@@ -1606,7 +1876,8 @@
                 company: document.getElementById('company-name').value.trim(),
                 title: document.getElementById('prospect-title').value.trim(),
                 location: document.getElementById('prospect-location').value.trim(),
-                tenure: document.getElementById('prospect-tenure').value.trim(),
+                company_tenure: document.getElementById('prospect-company-tenure').value.trim(),
+                role_tenure: document.getElementById('prospect-role-tenure').value.trim(),
                 linkedin_url: document.getElementById('linkedin-url').value.trim(),
                 team: document.getElementById('prospect-team').value.trim(),
                 certifications: splitLines(document.getElementById('prospect-certs').value, ','),
@@ -1673,7 +1944,8 @@
         setVal('sdr-name', data.sdr_name);
         setVal('prospect-title', p.title);
         setVal('prospect-location', p.location);
-        setVal('prospect-tenure', p.tenure);
+        setVal('prospect-company-tenure', p.company_tenure || p.tenure);
+        setVal('prospect-role-tenure', p.role_tenure);
         if (p.linkedin_url) setVal('linkedin-url', p.linkedin_url);
         setVal('prospect-team', p.team);
         setVal('prospect-certs', (p.certifications || []).join(', '));
@@ -1800,7 +2072,14 @@
         var html = '<div class="doc-header"><div class="doc-header-left"><h1>Demo Brief</h1><div class="doc-prospect-name">' + escHtml(p.name) + '</div><div class="doc-sdr">SDR: ' + escHtml(sdr) + '</div></div>' + headerRight + '</div>';
 
         var role = nf(p.title) ? '' : p.title;
-        if (p.tenure && !nf(p.tenure)) role += (role ? ' - ' : '') + p.tenure;
+        var companyTenureStr = p.company_tenure || p.tenure || '';
+        var roleTenureStr = p.role_tenure || '';
+        var tenureParts = [];
+        if (companyTenureStr && !nf(companyTenureStr)) tenureParts.push(companyTenureStr + ' at company');
+        if (roleTenureStr && !nf(roleTenureStr)) tenureParts.push(roleTenureStr + ' in current role');
+        var tenureDisplay = tenureParts.length ? tenureParts.join(', ') : '';
+        if (role && tenureDisplay) role += ' (' + tenureDisplay + ')';
+        else if (tenureDisplay) role = tenureDisplay;
         var ats = c.ats || '';
 
         html += '<table class="doc-info-table">';
@@ -1935,7 +2214,14 @@
         var divider = new D.Paragraph({ spacing: { before: 80, after: 160 }, border: { bottom: { style: D.BorderStyle.SINGLE, size: 6, color: 'D1D5DB', space: 1 } }, children: [] });
 
         var role = nf(p.title) ? '' : p.title;
-        if (p.tenure && !nf(p.tenure)) role += (role ? ' - ' : '') + p.tenure;
+        var docCompanyTenure = p.company_tenure || p.tenure || '';
+        var docRoleTenure = p.role_tenure || '';
+        var docTenureParts = [];
+        if (docCompanyTenure && !nf(docCompanyTenure)) docTenureParts.push(docCompanyTenure + ' at company');
+        if (docRoleTenure && !nf(docRoleTenure)) docTenureParts.push(docRoleTenure + ' in current role');
+        var docTenureDisplay = docTenureParts.length ? docTenureParts.join(', ') : '';
+        if (role && docTenureDisplay) role += ' (' + docTenureDisplay + ')';
+        else if (docTenureDisplay) role = docTenureDisplay;
         var ats = c.ats || '';
 
         function itr(label, value, linkUrl) {
