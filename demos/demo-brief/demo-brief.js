@@ -489,14 +489,19 @@
         return found.length ? Array.from(new Set(found)).join(', ') : '';
     }
 
-    function extractIncidents(results) {
+    function extractIncidents(results, companyName) {
         if (!results || !results.organic) return [];
         var incidents = [];
+        var companyLower = (companyName || '').toLowerCase();
         results.organic.forEach(function (r) {
             var title = r.title || '';
             var snippet = r.snippet || '';
             var combined = title + ' ' + snippet;
+            // Only include if the company name actually appears in the result
+            if (companyLower && combined.toLowerCase().indexOf(companyLower) === -1) return;
             if (/breach|hack|incident|leak|vulnerability|compromis|attack|ransomware|phishing|exploit|cyber.?attack/i.test(combined)) {
+                // Skip generic/educational articles
+                if (/how to|tips for|best practices|guide to|what is|top \d+/i.test(title)) return;
                 var dateMatch = snippet.match(/((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4})/i);
                 if (!dateMatch) dateMatch = snippet.match(/(\d{4})/);
                 incidents.push({
@@ -588,14 +593,148 @@
         return items.slice(0, 5);
     }
 
+    function extractCustomers(results) {
+        if (!results || !results.organic) return '';
+        var text = allSnippets(results);
+        // Look for "customers include" or "used by" patterns
+        var patterns = [
+            /(?:customers?\s+include|clients?\s+include|used\s+by|trusted\s+by|chosen\s+by|serving|works?\s+with)\s+([A-Z][^.]{10,150})/i,
+            /(?:customers?|clients?)[:\s]+([A-Z][a-zA-Z\s,&]+(?:,\s*[A-Z][a-zA-Z\s&]+){2,})/i,
+            /(?:companies?\s+(?:like|such\s+as|including))\s+([A-Z][^.]{10,150})/i
+        ];
+        for (var i = 0; i < patterns.length; i++) {
+            var m = text.match(patterns[i]);
+            if (m && m[1]) {
+                var cust = m[1].trim().replace(/\.$/, '').replace(/\s+and\s+more.*$/i, '');
+                if (cust.length > 5 && cust.length < 200) return cust;
+            }
+        }
+        // Look for well-known company names mentioned frequently
+        var brands = ['Google', 'Microsoft', 'Amazon', 'Meta', 'Apple', 'Netflix', 'Salesforce',
+            'SAP', 'Oracle', 'IBM', 'Uber', 'Airbnb', 'Spotify', 'Slack', 'Shopify',
+            'Stripe', 'Twilio', 'Datadog', 'Snowflake', 'Palantir', 'Adobe', 'Zoom',
+            'Deloitte', 'Accenture', 'KPMG', 'PwC', 'EY', 'McKinsey', 'BCG', 'Bain',
+            'JPMorgan', 'Goldman Sachs', 'Morgan Stanley', 'Citi', 'HSBC', 'Barclays',
+            'Toyota', 'BMW', 'Siemens', 'Samsung', 'Sony', 'Intel', 'Cisco', 'HP'];
+        var found = [];
+        for (var j = 0; j < brands.length; j++) {
+            if (text.indexOf(brands[j]) !== -1) found.push(brands[j]);
+        }
+        return found.length >= 2 ? found.slice(0, 6).join(', ') : '';
+    }
+
+    function extractCulture(results) {
+        if (!results) return '';
+        var text = allSnippets(results);
+        var patterns = [
+            /(?:culture|values?|mission)[:\s]+([A-Z"][^.]{15,200})/i,
+            /(?:known\s+for|recognized\s+for|committed\s+to|focuses?\s+on|believes?\s+in)\s+([a-z][^.]{15,150})/i,
+            /(?:workplace|work\s+environment|company\s+culture)[:\s]+([^.]{15,150})/i
+        ];
+        for (var i = 0; i < patterns.length; i++) {
+            var m = text.match(patterns[i]);
+            if (m && m[1]) {
+                var cult = m[1].trim().replace(/\.$/, '');
+                if (cult.length > 10 && cult.length < 200) return cult;
+            }
+        }
+        // Try extracting from Glassdoor or culture-related snippets
+        if (results.organic) {
+            for (var j = 0; j < results.organic.length; j++) {
+                var snippet = results.organic[j].snippet || '';
+                var title = results.organic[j].title || '';
+                if (/culture|values|mission|workplace/i.test(title) && snippet.length > 30) {
+                    return snippet.substring(0, 200).replace(/\.$/, '');
+                }
+            }
+        }
+        return '';
+    }
+
+    function extractAchievements(results, name) {
+        if (!results || !results.organic) return [];
+        var items = [];
+        var seen = {};
+        var text = allSnippets(results);
+
+        // Look for achievement patterns
+        var patterns = [
+            /(?:awarded|won|received|earned|recognized|named|selected|appointed|promoted)\s+([^.]{10,120})/gi,
+            /(?:led|launched|built|grew|scaled|delivered|drove|achieved|increased|reduced|managed)\s+([^.]{10,120})/gi,
+            /(?:speaker|panelist|keynote)\s+(?:at|for)\s+([^.]{5,80})/gi
+        ];
+        for (var i = 0; i < patterns.length; i++) {
+            var m;
+            while ((m = patterns[i].exec(text)) !== null) {
+                var achievement = m[0].trim().replace(/\.$/, '');
+                if (achievement.length > 10 && achievement.length < 150 && !seen[achievement]) {
+                    items.push(achievement);
+                    seen[achievement] = true;
+                }
+            }
+        }
+
+        return items.slice(0, 5);
+    }
+
+    function extractTeam(results, name) {
+        if (!results) return '';
+        var text = allSnippets(results);
+        var patterns = [
+            /(?:manages?|leads?|oversees?|heads?)\s+(?:a\s+)?(?:team\s+of\s+)?(\d+[\s\-+]*(?:people|employees|engineers|developers|reports|members|staff|direct\s+reports))/i,
+            /(\d+)\s*(?:\+\s*)?(?:direct\s+reports|reports|team\s+members)/i,
+            /(?:team\s+of|leading)\s+(\d+)/i,
+            /(?:manages?|leads?)\s+(?:the\s+)?([A-Z][a-zA-Z\s&]+?)\s+(?:team|department|group|division)/i
+        ];
+        for (var i = 0; i < patterns.length; i++) {
+            var m = text.match(patterns[i]);
+            if (m && m[1]) {
+                var team = m[0].trim().replace(/\.$/, '');
+                if (team.length > 3 && team.length < 100) return team;
+            }
+        }
+        return '';
+    }
+
+    function extractCompanySizeFromLinkedIn(results) {
+        if (!results) return '';
+        var text = allSnippets(results);
+        // LinkedIn company pages show size ranges like "1,001-5,000 employees"
+        var patterns = [
+            /([\d,]+\s*[-–]\s*[\d,]+)\s*employees/i,
+            /([\d,]+)\s*\+?\s*employees/i,
+            /company\s+size[:\s]*([\d,]+(?:\s*[-–]\s*[\d,]+)?)/i,
+            /([\d,]+)\s*(?:people|workers|staff|professionals|associates)/i,
+            /(?:has|with|employs?|about|approximately|over|nearly)\s*([\d,]+(?:\s*[-–]\s*[\d,]+)?)\s*(?:\+?\s*)?(?:employees|people|workers|staff)/i
+        ];
+        for (var i = 0; i < patterns.length; i++) {
+            var m = text.match(patterns[i]);
+            if (m) return m[1].trim();
+        }
+        // Also check URLs and titles for LinkedIn company page data
+        if (results.organic) {
+            for (var j = 0; j < results.organic.length; j++) {
+                var title = results.organic[j].title || '';
+                var snippet = results.organic[j].snippet || '';
+                var combined = title + ' ' + snippet;
+                var sizeMatch = combined.match(/([\d,]+\s*[-–]\s*[\d,]+)\s*employees/i);
+                if (sizeMatch) return sizeMatch[1].trim();
+                sizeMatch = combined.match(/([\d,]+)\s*\+?\s*employees/i);
+                if (sizeMatch) return sizeMatch[1].trim();
+            }
+        }
+        return '';
+    }
+
     // ══════════════════════════════════════════
     // Research Pipeline
     // ══════════════════════════════════════════
     var RESEARCH_TASKS = [
         { id: 'parse', label: 'Parsing LinkedIn URL' },
         { id: 'prospect', label: 'Researching prospect profile' },
-        { id: 'content', label: 'Finding published content' },
+        { id: 'content', label: 'Finding published content & achievements' },
         { id: 'company', label: 'Researching company overview' },
+        { id: 'customers', label: 'Finding customers & culture' },
         { id: 'hiring', label: 'Analyzing hiring infrastructure' },
         { id: 'security', label: 'Mapping identity & security tools' },
         { id: 'incidents', label: 'Checking security incidents' }
@@ -707,7 +846,31 @@
 
         var name = parsed.name;
         debugResponses = [];
-        console.log('[DemoBrief] Starting research for:', name, 'at', companyName);
+        console.log('[DemoBrief] Starting research for:', name, (companyName ? 'at ' + companyName : '(company TBD)'));
+
+        // Step 1: Parse URL & auto-detect company if not provided
+        setProgress('parse', 'active');
+        if (!companyName) {
+            // Try to detect company from LinkedIn search
+            try {
+                var detectResults = await serperSearch('site:linkedin.com/in/' + parsed.slug, apiKey);
+                companyName = extractCompanyFromLinkedIn(detectResults, name);
+                addDebugResponse('Company Auto-Detect (slug)', 'site:linkedin.com/in/' + parsed.slug, detectResults, { company: companyName });
+
+                if (!companyName) {
+                    var detectResults2 = await serperSearch('"' + name + '" LinkedIn current', apiKey);
+                    companyName = extractCompanyFromLinkedIn(detectResults2, name);
+                    addDebugResponse('Company Auto-Detect (name)', '"' + name + '" LinkedIn current', detectResults2, { company: companyName });
+                }
+            } catch (e) {
+                console.error('[DemoBrief] Company auto-detect error:', e);
+            }
+            if (!companyName) {
+                throw new Error('Could not detect company from LinkedIn — please enter it manually');
+            }
+            console.log('[DemoBrief] Auto-detected company:', companyName);
+        }
+        setProgress('parse', 'done', name + ' at ' + companyName);
 
         var data = {
             prospect: {
@@ -733,11 +896,6 @@
             sdr_name: document.getElementById('sdr-name').value.trim()
         };
 
-        // Step 1: Parse URL
-        setProgress('parse', 'active');
-        await delay(200);
-        setProgress('parse', 'done', name);
-
         // Step 2: Prospect profile — try site:linkedin first, then broader search
         setProgress('prospect', 'active');
         var prospectQuery = 'site:linkedin.com/in "' + name + '" ' + companyName;
@@ -760,6 +918,8 @@
             data.prospect.location = extractLocation(prospectResults);
             data.prospect.certifications = extractCerts(prospectResults);
             data.prospect.work_history = extractWorkHistory(prospectResults, name);
+            data.prospect.team = extractTeam(prospectResults, name);
+            data.prospect.achievements = extractAchievements(prospectResults, name);
 
             // Show first result title for debugging
             var firstTitle = (prospectResults && prospectResults.organic && prospectResults.organic[0])
@@ -770,6 +930,8 @@
                 location: data.prospect.location,
                 certs: data.prospect.certifications,
                 work_history: data.prospect.work_history,
+                team: data.prospect.team,
+                achievements: data.prospect.achievements,
                 _firstResultTitle: firstTitle
             });
 
@@ -886,7 +1048,76 @@
             setProgress('company', 'error', e.message);
         }
 
-        // Step 5: Hiring infrastructure
+        // Step 4b: Get company size from LinkedIn company page if still missing
+        if (!data.company.employee_count) {
+            try {
+                var linkedInCompanyQuery = 'site:linkedin.com/company "' + companyName + '" employees';
+                var linkedInCompanyResults = await serperSearch(linkedInCompanyQuery, apiKey);
+                var linkedInSize = extractCompanySizeFromLinkedIn(linkedInCompanyResults);
+                if (linkedInSize) {
+                    data.company.employee_count = linkedInSize;
+                    data.company.size = linkedInSize + ' employees';
+                }
+                addDebugResponse('Company Size (LinkedIn)', linkedInCompanyQuery, linkedInCompanyResults, {
+                    employee_count: data.company.employee_count
+                });
+
+                // If still no size, try a broader search
+                if (!data.company.employee_count) {
+                    var sizeQuery = companyName + ' number of employees company size';
+                    var sizeResults = await serperSearch(sizeQuery, apiKey);
+                    var broadSize = extractCompanySizeFromLinkedIn(sizeResults);
+                    if (!broadSize) broadSize = extractEmployeeCount(sizeResults);
+                    if (broadSize) {
+                        data.company.employee_count = broadSize;
+                        data.company.size = broadSize + ' employees';
+                    }
+                    addDebugResponse('Company Size (broad)', sizeQuery, sizeResults, {
+                        employee_count: data.company.employee_count
+                    });
+                }
+            } catch (e) {
+                console.error('[DemoBrief] Company size search error:', e);
+            }
+        }
+
+        // Step 5: Customers & culture
+        setProgress('customers', 'active');
+        try {
+            var custQuery = companyName + ' customers clients case studies';
+            var custResults = await serperSearch(custQuery, apiKey);
+            data.company.customers = extractCustomers(custResults);
+            addDebugResponse('Customers', custQuery, custResults, { customers: data.company.customers });
+
+            var cultureQuery = companyName + ' culture values mission workplace';
+            var cultureResults = await serperSearch(cultureQuery, apiKey);
+            data.company.culture = extractCulture(cultureResults);
+            addDebugResponse('Culture', cultureQuery, cultureResults, { culture: data.company.culture });
+
+            var custFound = [];
+            if (data.company.customers) custFound.push('Customers found');
+            if (data.company.culture) custFound.push('Culture found');
+            setProgress('customers', 'done', custFound.join(' | ') || 'Limited data');
+        } catch (e) {
+            console.error('[DemoBrief] Customers/culture search error:', e);
+            setProgress('customers', 'error', e.message);
+        }
+
+        // Step 5b: Prospect achievements (if not found earlier)
+        if (!data.prospect.achievements || data.prospect.achievements.length === 0) {
+            try {
+                var achQuery = '"' + name + '" ' + companyName + ' awarded OR recognized OR led OR launched OR speaker';
+                var achResults = await serperSearch(achQuery, apiKey);
+                data.prospect.achievements = extractAchievements(achResults, name);
+                addDebugResponse('Achievements (follow-up)', achQuery, achResults, {
+                    achievements: data.prospect.achievements
+                });
+            } catch (e) {
+                console.error('[DemoBrief] Achievements search error:', e);
+            }
+        }
+
+        // Step 6: Hiring infrastructure
         setProgress('hiring', 'active');
         var hiringQuery = companyName + ' careers jobs apply';
         try {
@@ -943,7 +1174,7 @@
             setProgress('hiring', 'error', e.message);
         }
 
-        // Step 6: Security tools
+        // Step 7: Security tools
         setProgress('security', 'active');
         var secQuery = companyName + ' security compliance';
         try {
@@ -964,13 +1195,13 @@
             setProgress('security', 'error', e.message);
         }
 
-        // Step 7: Security incidents
+        // Step 8: Security incidents
         setProgress('incidents', 'active');
-        var incQuery = companyName + ' data breach OR security incident OR hack';
+        var incQuery = '"' + companyName + '" data breach OR security incident OR hack';
         try {
             var incResults = await serperSearch(incQuery, apiKey);
             console.log('[DemoBrief] Incidents results:', incResults);
-            data.company.security_incidents = extractIncidents(incResults);
+            data.company.security_incidents = extractIncidents(incResults, companyName);
 
             addDebugResponse('Incidents', incQuery, incResults, {
                 incidents: data.company.security_incidents
@@ -1213,26 +1444,6 @@
         var sdr = document.getElementById('sdr-name').value.trim();
 
         if (!url) { showToast('Enter a LinkedIn URL', 'error'); linkedInInput.focus(); return; }
-        // If company is empty, try to auto-detect it before giving up
-        if (!company) {
-            var parsed = parseLinkedInUrl(url);
-            if (parsed) {
-                var apiKey2 = getApiKey();
-                if (apiKey2) {
-                    var quickResults = await serperSearch('site:linkedin.com/in/' + parsed.slug, apiKey2);
-                    var detected = extractCompanyFromLinkedIn(quickResults, parsed.name);
-                    if (detected) {
-                        document.getElementById('company-name').value = detected;
-                        company = detected;
-                    }
-                }
-            }
-            if (!company) {
-                showToast('Enter a company name', 'error');
-                document.getElementById('company-name').focus();
-                return;
-            }
-        }
         if (!sdr) { showToast('Enter SDR name', 'error'); document.getElementById('sdr-name').focus(); return; }
 
         var apiKey = getApiKey();
@@ -1251,10 +1462,14 @@
         previewEmpty.style.display = 'none';
         previewDoc.style.display = 'none';
         previewLoading.style.display = '';
-        previewLoadingText.textContent = 'Researching ' + company + '...';
+        previewLoadingText.textContent = 'Researching prospect...';
 
         try {
             var data = await runResearch(url, company, apiKey);
+            // Update company field if it was auto-detected
+            if (!company && data.company.name) {
+                document.getElementById('company-name').value = data.company.name;
+            }
 
             // Populate form with results
             populateFormFromData(data);
