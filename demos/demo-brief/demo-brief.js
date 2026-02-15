@@ -1060,9 +1060,10 @@
     var linkedInHint = document.getElementById('linkedin-hint');
 
     var _companyLookupAbort = null;
+    var _lastParsedUrl = '';
 
-    linkedInInput.addEventListener('input', function () {
-        var val = this.value.trim();
+    function handleLinkedInInput() {
+        var val = linkedInInput.value.trim();
         if (!val) { linkedInHint.textContent = ''; linkedInHint.className = 'input-hint'; return; }
         var parsed = parseLinkedInUrl(val);
         if (parsed) {
@@ -1070,97 +1071,126 @@
             linkedInHint.className = 'input-hint success';
             // Auto-fill prospect name
             document.getElementById('prospect-name').value = parsed.name;
-            // Auto-detect company from LinkedIn profile
-            autoDetectCompany(parsed);
+            // Auto-detect company (only if this is a new URL)
+            if (_lastParsedUrl !== parsed.slug) {
+                _lastParsedUrl = parsed.slug;
+                autoDetectCompany(parsed);
+            }
         } else {
             linkedInHint.textContent = 'Not a valid LinkedIn profile URL';
             linkedInHint.className = 'input-hint error';
         }
+    }
+
+    linkedInInput.addEventListener('input', handleLinkedInInput);
+    linkedInInput.addEventListener('paste', function () {
+        // Paste event fires before the value is updated, so defer
+        setTimeout(handleLinkedInInput, 50);
     });
 
     function autoDetectCompany(parsed) {
         var companyInput = document.getElementById('company-name');
-        // Don't overwrite if user already typed a company
-        if (companyInput.value.trim()) return;
 
         var apiKey = getApiKey();
-        if (!apiKey) return;
+        if (!apiKey) {
+            console.log('[DemoBrief] No API key, skipping company auto-detect');
+            return;
+        }
 
         // Cancel any previous lookup
         if (_companyLookupAbort) _companyLookupAbort.cancelled = true;
         var thisLookup = { cancelled: false };
         _companyLookupAbort = thisLookup;
 
-        // Show loading state on company field
+        // Show loading state
+        companyInput.value = '';
         companyInput.placeholder = 'Detecting company...';
+        linkedInHint.textContent = 'Detected: ' + parsed.name + ' — looking up company...';
 
-        // Search for the LinkedIn profile to get title with company
+        // Try multiple search strategies
         var slug = parsed.slug;
-        var query = 'site:linkedin.com/in/' + slug;
-        serperSearch(query, apiKey).then(function (results) {
+        var name = parsed.name;
+
+        // Strategy 1: Search by exact slug (most precise)
+        serperSearch('site:linkedin.com/in/' + slug, apiKey).then(function (results) {
             if (thisLookup.cancelled) return;
-            var company = extractCompanyFromLinkedIn(results, parsed.name);
+            var company = extractCompanyFromLinkedIn(results, name);
+            if (company) return company;
+
+            // Strategy 2: Search by name + LinkedIn
+            console.log('[DemoBrief] Slug search returned no company, trying name search');
+            return serperSearch('"' + name + '" LinkedIn', apiKey).then(function (results2) {
+                if (thisLookup.cancelled) return '';
+                return extractCompanyFromLinkedIn(results2, name);
+            });
+        }).then(function (company) {
+            if (thisLookup.cancelled) return;
             if (company) {
                 companyInput.value = company;
                 companyInput.placeholder = 'e.g. Elastic';
-                linkedInHint.textContent = 'Detected: ' + parsed.name + ' at ' + company;
+                linkedInHint.textContent = 'Detected: ' + name + ' at ' + company;
                 console.log('[DemoBrief] Auto-detected company:', company);
             } else {
-                companyInput.placeholder = 'e.g. Elastic';
-                console.log('[DemoBrief] Could not auto-detect company from LinkedIn');
+                companyInput.placeholder = 'Could not detect — type company name';
+                linkedInHint.textContent = 'Detected: ' + name + ' — company not found, please type it';
+                linkedInHint.className = 'input-hint';
+                console.log('[DemoBrief] Could not auto-detect company');
             }
-        }).catch(function () {
-            if (!thisLookup.cancelled) companyInput.placeholder = 'e.g. Elastic';
+        }).catch(function (e) {
+            if (!thisLookup.cancelled) {
+                companyInput.placeholder = 'e.g. Elastic';
+                linkedInHint.textContent = 'Detected: ' + name + ' — company lookup failed';
+                console.error('[DemoBrief] Company lookup error:', e);
+            }
         });
     }
 
     function extractCompanyFromLinkedIn(results, name) {
         if (!results || !results.organic) return '';
-        var firstName = name.split(' ')[0].toLowerCase();
 
-        for (var i = 0; i < results.organic.length; i++) {
+        for (var i = 0; i < Math.min(5, results.organic.length); i++) {
             var title = results.organic[i].title || '';
             var link = results.organic[i].link || '';
-
-            // Must be a LinkedIn profile
-            if (!/linkedin\.com\/in\//i.test(link)) continue;
-
-            // Split LinkedIn title: "Name - Title - Company | LinkedIn"
-            var parts = title.split(/\s+[-–—]\s+/);
-            // Remove the "LinkedIn" part from the end (split by |)
-            if (parts.length > 0) {
-                var lastPart = parts[parts.length - 1];
-                if (/linkedin/i.test(lastPart)) {
-                    // "Company | LinkedIn" → just "Company"
-                    var beforePipe = lastPart.split(/\s*\|\s*/)[0].trim();
-                    if (beforePipe && !/linkedin/i.test(beforePipe)) {
-                        parts[parts.length - 1] = beforePipe;
-                    } else {
-                        parts.pop();
-                    }
-                }
-            }
-
-            // Format: [Name, Title, Company] or [Name, Company] or [Name, Title at Company]
-            if (parts.length >= 3) {
-                // Company is the last part (after removing LinkedIn)
-                var company = parts[parts.length - 1].trim();
-                if (company.length > 1 && company.length < 60) return company;
-            } else if (parts.length === 2) {
-                // Could be "Name - Company" or "Name - Title at Company"
-                var second = parts[1].trim();
-                var atMatch = second.match(/\bat\s+(.+)$/i);
-                if (atMatch) return atMatch[1].trim();
-                // If second part doesn't look like a title, it's probably the company
-                if (!/^(Chief|VP|Head|Director|Manager|Senior|Lead|Principal|Engineer|Analyst|Consultant|Architect|Specialist|Coordinator|President|Founder|Partner)/i.test(second)) {
-                    return second;
-                }
-            }
-
-            // Also try snippet for "Title at Company" pattern
             var snippet = results.organic[i].snippet || '';
-            var atCompany = snippet.match(/(?:at|chez|@|à)\s+([A-ZÀ-ÿ][a-zA-ZÀ-ÿ\s&.]+?)(?:\s*[·|•]|\s*\.\s|\s*,\s)/);
-            if (atCompany && atCompany[1].length > 1 && atCompany[1].length < 60) return atCompany[1].trim();
+
+            console.log('[DemoBrief] Checking result for company:', title, '|', link);
+
+            // Prefer LinkedIn profile results, but also check others
+            var isLinkedIn = /linkedin\.com\/in\//i.test(link) || /linkedin/i.test(title);
+
+            if (isLinkedIn) {
+                // First: strip "| LinkedIn" from end if present
+                var cleanTitle = title.replace(/\s*\|\s*LinkedIn\s*$/i, '').trim();
+
+                // Split by " - " (standard LinkedIn separator)
+                var parts = cleanTitle.split(/\s+[-–—]\s+/);
+                console.log('[DemoBrief] LinkedIn title parts:', parts);
+
+                // "Name - Title - Company" → company is last
+                if (parts.length >= 3) {
+                    var company = parts[parts.length - 1].trim();
+                    if (company.length > 1 && company.length < 60) return company;
+                }
+                // "Name - Company" or "Name - Title at Company"
+                if (parts.length === 2) {
+                    var second = parts[1].trim();
+                    // Check for "Title at Company" or "Title chez Company"
+                    var atMatch = second.match(/\b(?:at|chez|@|à)\s+(.+)$/i);
+                    if (atMatch && atMatch[1].length > 1) return atMatch[1].trim();
+                    // Otherwise it's likely the company name
+                    if (second.length > 1 && second.length < 60) return second;
+                }
+            }
+
+            // Try snippet for "Title at Company" pattern (works for any result)
+            var atPatterns = [
+                /(?:^|\.\s+|\,\s+)(?:[A-Za-z\s&]+)\s+(?:at|chez|@|à)\s+([A-ZÀ-ÿ][a-zA-ZÀ-ÿ\s&.]+?)(?:\s*[·|•]|\s*\.\s|\s*,\s|$)/,
+                /(?:works?\s+(?:at|for)|employed\s+(?:at|by)|currently\s+at)\s+([A-ZÀ-ÿ][a-zA-ZÀ-ÿ\s&.]+?)(?:\s*[·|•]|\s*\.\s|\s*,\s|$)/i
+            ];
+            for (var p = 0; p < atPatterns.length; p++) {
+                var atCompany = snippet.match(atPatterns[p]);
+                if (atCompany && atCompany[1].length > 1 && atCompany[1].length < 60) return atCompany[1].trim();
+            }
         }
         return '';
     }
