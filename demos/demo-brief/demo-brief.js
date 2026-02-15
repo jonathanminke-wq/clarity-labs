@@ -312,21 +312,24 @@
     }
 
     function extractHQ(results) {
-        var kgHQ = getKGAttr(results, 'Headquarters') || getKGAttr(results, 'Headquartered') || getKGAttr(results, 'Location');
+        var kgHQ = getKGAttr(results, 'Headquarters') || getKGAttr(results, 'Headquartered') || getKGAttr(results, 'Location') || getKGAttr(results, 'Head office');
         if (kgHQ) return kgHQ;
 
         var text = allSnippets(results);
         var patterns = [
-            /(?:headquartered|headquarters|HQ)\s+(?:in|at|is in)\s+([A-Z][a-zA-Z\s,]+)/i,
-            /(?:based\s+(?:in|out\s+of))\s+([A-Z][a-zA-Z\s,]+?)(?:\.\s|\swith\s|\sand\s|,\s+(?:the|a|with))/i,
-            /(?:offices?\s+in)\s+([A-Z][a-zA-Z\s]+,\s*[A-Z][a-zA-Z\s]*)/i
+            /(?:headquartered|headquarters|HQ|head office|main office|siège)\s+(?:in|at|is in|:)\s+([A-ZÀ-ÿ][a-zA-ZÀ-ÿ\s,]+)/i,
+            /(?:based\s+(?:in|out\s+of))\s+([A-ZÀ-ÿ][a-zA-ZÀ-ÿ\s,]+?)(?:\.\s|\swith\s|\sand\s|,\s+(?:the|a|with))/i,
+            /(?:offices?\s+in)\s+([A-ZÀ-ÿ][a-zA-ZÀ-ÿ\s]+,\s*[A-ZÀ-ÿ][a-zA-ZÀ-ÿ\s]*)/i,
+            // "City, Country" near company name
+            /(?:located|location)[:\s]+([A-ZÀ-ÿ][a-zA-ZÀ-ÿ\s]+,\s*[A-Za-zÀ-ÿ\s]+)/i,
+            // LinkedIn company page format: "City, Region · Company type"
+            /([A-ZÀ-ÿ][a-zA-ZÀ-ÿ\s-]+,\s*(?:France|Germany|UK|United Kingdom|United States|US|USA|Canada|Australia|Israel|India|Japan|Singapore|Netherlands|Sweden|Switzerland|Spain|Italy|Poland|Ireland|Brazil|Belgium|Austria|Île-de-France|California|New York|Texas|Florida|Illinois|Pennsylvania|Ohio|Georgia|Virginia|Washington))/i
         ];
         for (var i = 0; i < patterns.length; i++) {
             var m = text.match(patterns[i]);
             if (m) {
-                var hq = m[1].trim().replace(/[.,]$/, '');
+                var hq = m[1].trim().replace(/[.,]$/, '').replace(/\s+·.*$/, '');
                 if (hq.length > 2 && hq.length < 60) return hq;
-            }
         }
         return '';
     }
@@ -388,7 +391,16 @@
             { name: 'Pinpoint', patterns: ['pinpointhq.com'] },
             { name: 'Avature', patterns: ['avature.net', 'Avature'] },
             { name: 'Phenom', patterns: ['phenom.com', 'PhenomPeople'] },
-            { name: 'Cornerstone', patterns: ['cornerstoneondemand.com', 'Cornerstone'] }
+            { name: 'Cornerstone', patterns: ['cornerstoneondemand.com', 'Cornerstone'] },
+            { name: 'Welcome to the Jungle', patterns: ['welcometothejungle.com', 'wttj.co'] },
+            { name: 'Flatchr', patterns: ['flatchr.io', 'Flatchr'] },
+            { name: 'Talentsoft', patterns: ['talentsoft.com', 'Talentsoft'] },
+            { name: 'Personio', patterns: ['personio.de', 'personio.com', 'Personio'] },
+            { name: 'Factorial', patterns: ['factorial.co', 'factorialhr.com'] },
+            { name: 'Deel', patterns: ['deel.com'] },
+            { name: 'Rippling', patterns: ['rippling.com'] },
+            { name: 'HiBob', patterns: ['hibob.com', 'HiBob'] },
+            { name: 'Bullhorn', patterns: ['bullhorn.com', 'Bullhorn'] }
         ];
         var found = [];
         for (var i = 0; i < systems.length; i++) {
@@ -760,6 +772,21 @@
                 _firstResultTitle: firstTitle
             });
 
+            // If location not found, try a focused search
+            if (!data.prospect.location) {
+                var locQuery = '"' + name + '" location OR based OR area';
+                var locResults = await serperSearch(locQuery, apiKey);
+                data.prospect.location = extractLocation(locResults);
+                // Also try the company LinkedIn page for location
+                if (!data.prospect.location) {
+                    var compLinkedIn = await serperSearch('site:linkedin.com/company "' + companyName + '"', apiKey);
+                    data.prospect.location = extractLocation(compLinkedIn);
+                }
+                addDebugResponse('Location (follow-up)', locQuery, locResults, {
+                    location: data.prospect.location
+                });
+            }
+
             var found = [];
             if (data.prospect.title) found.push(data.prospect.title);
             if (data.prospect.location) found.push(data.prospect.location);
@@ -826,6 +853,28 @@
                 product: data.company.product_description ? data.company.product_description.substring(0, 60) : ''
             });
 
+            // If HQ or founded still missing, try a focused follow-up search
+            if (!data.company.headquarters || !data.company.founded) {
+                var hqQuery = companyName + ' headquarters location founded';
+                var hqResults = await serperSearch(hqQuery, apiKey);
+                if (!data.company.headquarters) data.company.headquarters = extractHQ(hqResults);
+                if (!data.company.founded) data.company.founded = extractFounded(hqResults);
+                // Also try LinkedIn company page for HQ
+                if (!data.company.headquarters) {
+                    var hqText = allSnippets(hqResults);
+                    // Look for "City, Country" or "City, State" anywhere
+                    var hqFallback = hqText.match(/(?:headquartered|headquarters|HQ|head office|main office|based)\s+(?:in|at|:)\s+([A-ZÀ-ÿ][a-zA-ZÀ-ÿ\s]+(?:,\s*[A-Za-zÀ-ÿ\s]+)?)/i);
+                    if (hqFallback) {
+                        var hqVal = hqFallback[1].trim().replace(/[.,]$/, '');
+                        if (hqVal.length > 2 && hqVal.length < 60) data.company.headquarters = hqVal;
+                    }
+                }
+                addDebugResponse('Company HQ (follow-up)', hqQuery, hqResults, {
+                    hq: data.company.headquarters,
+                    founded: data.company.founded
+                });
+            }
+
             var companyFirstTitle = (companyResults && companyResults.organic && companyResults.organic[0])
                 ? companyResults.organic[0].title : '(no results)';
             var companyFound = [data.company.industry, data.company.headquarters, data.company.employee_count ? data.company.employee_count + ' emp' : ''].filter(Boolean);
@@ -838,7 +887,7 @@
 
         // Step 5: Hiring infrastructure
         setProgress('hiring', 'active');
-        var hiringQuery = companyName + ' careers jobs';
+        var hiringQuery = companyName + ' careers jobs apply';
         try {
             var hiringResults = await serperSearch(hiringQuery, apiKey);
             console.log('[DemoBrief] Hiring results:', hiringResults);
@@ -856,6 +905,36 @@
                 ats: data.company.ats,
                 jobs: data.company.open_remote_jobs
             });
+
+            // If ATS not found, try a direct search for career page ATS URLs
+            if (!data.company.ats) {
+                var atsQuery = companyName + ' careers site:greenhouse.io OR site:lever.co OR site:ashbyhq.com OR site:myworkdayjobs.com OR site:icims.com OR site:smartrecruiters.com OR site:jobvite.com';
+                var atsResults = await serperSearch(atsQuery, apiKey);
+                data.company.ats = extractATS(atsResults);
+                // Also check the LinkedIn company page for ATS clues
+                if (!data.company.ats && atsResults && atsResults.organic && atsResults.organic.length > 0) {
+                    // If we got any results from these ATS domains, identify which one
+                    for (var ai = 0; ai < atsResults.organic.length; ai++) {
+                        var atsLink = atsResults.organic[ai].link || '';
+                        if (/greenhouse\.io/i.test(atsLink)) { data.company.ats = 'Greenhouse'; break; }
+                        if (/lever\.co/i.test(atsLink)) { data.company.ats = 'Lever'; break; }
+                        if (/ashbyhq\.com/i.test(atsLink)) { data.company.ats = 'Ashby'; break; }
+                        if (/myworkdayjobs\.com/i.test(atsLink)) { data.company.ats = 'Workday'; break; }
+                        if (/icims\.com/i.test(atsLink)) { data.company.ats = 'iCIMS'; break; }
+                        if (/smartrecruiters\.com/i.test(atsLink)) { data.company.ats = 'SmartRecruiters'; break; }
+                        if (/jobvite\.com/i.test(atsLink)) { data.company.ats = 'Jobvite'; break; }
+                        if (/bamboohr\.com/i.test(atsLink)) { data.company.ats = 'BambooHR'; break; }
+                        if (/successfactors\.com/i.test(atsLink)) { data.company.ats = 'SAP SuccessFactors'; break; }
+                        if (/taleo\.net/i.test(atsLink)) { data.company.ats = 'Taleo'; break; }
+                        if (/breezy\.hr/i.test(atsLink)) { data.company.ats = 'Breezy HR'; break; }
+                        if (/teamtailor\.com/i.test(atsLink)) { data.company.ats = 'Teamtailor'; break; }
+                        if (/recruitee\.com/i.test(atsLink)) { data.company.ats = 'Recruitee'; break; }
+                        if (/welcometothejungle/i.test(atsLink)) { data.company.ats = 'Welcome to the Jungle'; break; }
+                    }
+                }
+                addDebugResponse('ATS (follow-up)', atsQuery, atsResults, { ats: data.company.ats });
+            }
+
             setProgress('hiring', 'done', data.company.ats ? 'ATS: ' + data.company.ats : (data.company.open_remote_jobs || 'Limited data'));
         } catch (e) {
             console.error('[DemoBrief] Hiring search error:', e);
