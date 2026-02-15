@@ -1050,7 +1050,17 @@
             previewActions.style.display = '';
             window._lastBriefData = data;
 
-            showToast('Research complete — review and edit below', 'success');
+            // Show detailed toast with what was found
+            var foundFields = [];
+            if (data.prospect.title) foundFields.push('Title');
+            if (data.prospect.location) foundFields.push('Location');
+            if (data.company.industry) foundFields.push('Industry');
+            if (data.company.website) foundFields.push('Website');
+            if (data.company.headquarters) foundFields.push('HQ');
+            var toastMsg = foundFields.length > 0
+                ? 'Research complete — found: ' + foundFields.join(', ')
+                : 'Research complete — no data extracted (check diagnostics in preview)';
+            showToast(toastMsg, foundFields.length > 0 ? 'success' : 'error');
         } catch (e) {
             previewLoading.style.display = 'none';
             previewEmpty.style.display = '';
@@ -1425,6 +1435,24 @@
             html += '</ul>';
         } else html += '<ul class="doc-bullets"><li class="muted">No recent security incidents found.</li></ul>';
         html += '</div>';
+
+        // Debug: show research diagnostics at the bottom of the preview
+        if (debugResponses && debugResponses.length > 0) {
+            html += '<div class="doc-section" style="margin-top: 24px; padding: 12px; background: #f1f5f9; border-radius: 8px; border: 1px dashed #94a3b8;">';
+            html += '<div class="doc-section-title" style="color: #6366f1;">Research Diagnostics (remove before sending)</div>';
+            debugResponses.forEach(function (dr) {
+                var orgCount = (dr.results && dr.results.organic) ? dr.results.organic.length : 0;
+                var hasKG = !!(dr.results && dr.results.knowledgeGraph && dr.results.knowledgeGraph.title);
+                var firstTitle = (dr.results && dr.results.organic && dr.results.organic[0]) ? dr.results.organic[0].title : '(none)';
+                var firstSnippet = (dr.results && dr.results.organic && dr.results.organic[0]) ? (dr.results.organic[0].snippet || '').substring(0, 100) : '';
+                html += '<p style="font-size: 11px; margin: 4px 0; font-family: monospace;">';
+                html += '<strong>' + escHtml(dr.label) + '</strong> [q: ' + escHtml(dr.query) + ']<br>';
+                html += orgCount + ' results' + (hasKG ? ' + KG' : '') + ' — Top: "' + escHtml(firstTitle) + '"';
+                if (firstSnippet) html += '<br>Snippet: "' + escHtml(firstSnippet) + '..."';
+                html += '</p>';
+            });
+            html += '</div>';
+        }
 
         document.getElementById('doc-page').innerHTML = html;
     }
