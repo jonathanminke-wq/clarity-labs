@@ -1059,6 +1059,8 @@
     var linkedInInput = document.getElementById('linkedin-url');
     var linkedInHint = document.getElementById('linkedin-hint');
 
+    var _companyLookupAbort = null;
+
     linkedInInput.addEventListener('input', function () {
         var val = this.value.trim();
         if (!val) { linkedInHint.textContent = ''; linkedInHint.className = 'input-hint'; return; }
@@ -1068,11 +1070,100 @@
             linkedInHint.className = 'input-hint success';
             // Auto-fill prospect name
             document.getElementById('prospect-name').value = parsed.name;
+            // Auto-detect company from LinkedIn profile
+            autoDetectCompany(parsed);
         } else {
             linkedInHint.textContent = 'Not a valid LinkedIn profile URL';
             linkedInHint.className = 'input-hint error';
         }
     });
+
+    function autoDetectCompany(parsed) {
+        var companyInput = document.getElementById('company-name');
+        // Don't overwrite if user already typed a company
+        if (companyInput.value.trim()) return;
+
+        var apiKey = getApiKey();
+        if (!apiKey) return;
+
+        // Cancel any previous lookup
+        if (_companyLookupAbort) _companyLookupAbort.cancelled = true;
+        var thisLookup = { cancelled: false };
+        _companyLookupAbort = thisLookup;
+
+        // Show loading state on company field
+        companyInput.placeholder = 'Detecting company...';
+
+        // Search for the LinkedIn profile to get title with company
+        var slug = parsed.slug;
+        var query = 'site:linkedin.com/in/' + slug;
+        serperSearch(query, apiKey).then(function (results) {
+            if (thisLookup.cancelled) return;
+            var company = extractCompanyFromLinkedIn(results, parsed.name);
+            if (company) {
+                companyInput.value = company;
+                companyInput.placeholder = 'e.g. Elastic';
+                linkedInHint.textContent = 'Detected: ' + parsed.name + ' at ' + company;
+                console.log('[DemoBrief] Auto-detected company:', company);
+            } else {
+                companyInput.placeholder = 'e.g. Elastic';
+                console.log('[DemoBrief] Could not auto-detect company from LinkedIn');
+            }
+        }).catch(function () {
+            if (!thisLookup.cancelled) companyInput.placeholder = 'e.g. Elastic';
+        });
+    }
+
+    function extractCompanyFromLinkedIn(results, name) {
+        if (!results || !results.organic) return '';
+        var firstName = name.split(' ')[0].toLowerCase();
+
+        for (var i = 0; i < results.organic.length; i++) {
+            var title = results.organic[i].title || '';
+            var link = results.organic[i].link || '';
+
+            // Must be a LinkedIn profile
+            if (!/linkedin\.com\/in\//i.test(link)) continue;
+
+            // Split LinkedIn title: "Name - Title - Company | LinkedIn"
+            var parts = title.split(/\s+[-–—]\s+/);
+            // Remove the "LinkedIn" part from the end (split by |)
+            if (parts.length > 0) {
+                var lastPart = parts[parts.length - 1];
+                if (/linkedin/i.test(lastPart)) {
+                    // "Company | LinkedIn" → just "Company"
+                    var beforePipe = lastPart.split(/\s*\|\s*/)[0].trim();
+                    if (beforePipe && !/linkedin/i.test(beforePipe)) {
+                        parts[parts.length - 1] = beforePipe;
+                    } else {
+                        parts.pop();
+                    }
+                }
+            }
+
+            // Format: [Name, Title, Company] or [Name, Company] or [Name, Title at Company]
+            if (parts.length >= 3) {
+                // Company is the last part (after removing LinkedIn)
+                var company = parts[parts.length - 1].trim();
+                if (company.length > 1 && company.length < 60) return company;
+            } else if (parts.length === 2) {
+                // Could be "Name - Company" or "Name - Title at Company"
+                var second = parts[1].trim();
+                var atMatch = second.match(/\bat\s+(.+)$/i);
+                if (atMatch) return atMatch[1].trim();
+                // If second part doesn't look like a title, it's probably the company
+                if (!/^(Chief|VP|Head|Director|Manager|Senior|Lead|Principal|Engineer|Analyst|Consultant|Architect|Specialist|Coordinator|President|Founder|Partner)/i.test(second)) {
+                    return second;
+                }
+            }
+
+            // Also try snippet for "Title at Company" pattern
+            var snippet = results.organic[i].snippet || '';
+            var atCompany = snippet.match(/(?:at|chez|@|à)\s+([A-ZÀ-ÿ][a-zA-ZÀ-ÿ\s&.]+?)(?:\s*[·|•]|\s*\.\s|\s*,\s)/);
+            if (atCompany && atCompany[1].length > 1 && atCompany[1].length < 60) return atCompany[1].trim();
+        }
+        return '';
+    }
 
     // ══════════════════════════════════════════
     // UI: Research Button
@@ -1091,7 +1182,26 @@
         var sdr = document.getElementById('sdr-name').value.trim();
 
         if (!url) { showToast('Enter a LinkedIn URL', 'error'); linkedInInput.focus(); return; }
-        if (!company) { showToast('Enter a company name', 'error'); document.getElementById('company-name').focus(); return; }
+        // If company is empty, try to auto-detect it before giving up
+        if (!company) {
+            var parsed = parseLinkedInUrl(url);
+            if (parsed) {
+                var apiKey2 = getApiKey();
+                if (apiKey2) {
+                    var quickResults = await serperSearch('site:linkedin.com/in/' + parsed.slug, apiKey2);
+                    var detected = extractCompanyFromLinkedIn(quickResults, parsed.name);
+                    if (detected) {
+                        document.getElementById('company-name').value = detected;
+                        company = detected;
+                    }
+                }
+            }
+            if (!company) {
+                showToast('Enter a company name', 'error');
+                document.getElementById('company-name').focus();
+                return;
+            }
+        }
         if (!sdr) { showToast('Enter SDR name', 'error'); document.getElementById('sdr-name').focus(); return; }
 
         var apiKey = getApiKey();
