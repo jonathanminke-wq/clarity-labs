@@ -330,6 +330,7 @@
             if (m) {
                 var hq = m[1].trim().replace(/[.,]$/, '').replace(/\s+·.*$/, '');
                 if (hq.length > 2 && hq.length < 60) return hq;
+            }
         }
         return '';
     }
