@@ -57,38 +57,151 @@
     }
 
     // ══════════════════════════════════════════
-    // Data Extractors (from search snippets)
+    // Data Extractors (from search results + knowledgeGraph)
     // ══════════════════════════════════════════
+
+    // Combine all text from organic results for pattern matching
     function allSnippets(results) {
-        if (!results || !results.organic) return '';
-        return results.organic.map(function (r) { return (r.title || '') + ' ' + (r.snippet || ''); }).join(' ');
+        if (!results) return '';
+        var parts = [];
+        if (results.organic) {
+            results.organic.forEach(function (r) {
+                parts.push(r.title || '');
+                parts.push(r.snippet || '');
+            });
+        }
+        if (results.answerBox) {
+            parts.push(results.answerBox.title || '');
+            parts.push(results.answerBox.snippet || '');
+            parts.push(results.answerBox.answer || '');
+        }
+        if (results.peopleAlsoAsk) {
+            results.peopleAlsoAsk.forEach(function (q) {
+                parts.push(q.question || '');
+                parts.push(q.snippet || '');
+            });
+        }
+        return parts.join(' ');
+    }
+
+    // Extract structured data from Serper's knowledgeGraph
+    function getKG(results) {
+        return (results && results.knowledgeGraph) || {};
+    }
+
+    function getKGAttr(results, key) {
+        var kg = getKG(results);
+        if (!kg.attributes) return '';
+        // Try exact key first, then case-insensitive
+        if (kg.attributes[key]) return kg.attributes[key];
+        var keys = Object.keys(kg.attributes);
+        for (var i = 0; i < keys.length; i++) {
+            if (keys[i].toLowerCase() === key.toLowerCase()) return kg.attributes[keys[i]];
+        }
+        return '';
     }
 
     function extractTitle(results, name) {
+        // 1. Check knowledgeGraph first
+        var kg = getKG(results);
+        if (kg.description) {
+            // KG description often has the role, e.g. "CEO of Astek"
+            var kgTitle = kg.description;
+            // If it's short enough to be a title, use it
+            if (kgTitle.length < 80) return kgTitle;
+        }
+
         var text = allSnippets(results);
+        // 2. Look for common title patterns in text
+        var titlePatterns = [
+            // "Name - Title at Company" (LinkedIn format)
+            new RegExp(name.split(' ')[0] + '\\s+[A-Z]\\w*\\s*[-–—|·]\\s*(.{5,60?})(?:\\s+[-–—|·]\\s|\\s+at\\s|$)', 'i'),
+            // "Title at Company"  or "Title, Company"
+            /(?:^|\.\s+)((?:Chief|Vice|Senior|Head|Director|Manager|Lead|Principal|VP|SVP|EVP|AVP|CTO|CEO|CIO|CISO|CSO|COO|CFO|CPO|CDO|CMO|CRO)[^.]{3,50?}?)(?:\.\s|\s+at\s|\s+@\s|$)/im,
+            // "is the Title" or "serves as Title"
+            /(?:is\s+(?:the\s+)?|serves?\s+as\s+(?:the\s+)?)((?:Chief|Vice|Senior|Head|Director|Manager|Lead|Principal|VP|SVP|EVP|AVP|CTO|CEO|CIO|CISO|CSO|COO|CFO|CPO|CDO|CMO|CRO)[^.]{3,50})/i
+        ];
+        for (var i = 0; i < titlePatterns.length; i++) {
+            var m = text.match(titlePatterns[i]);
+            if (m && m[1]) {
+                var title = m[1].trim().replace(/\s*[-–—|·]\s*$/, '').replace(/\.$/, '');
+                if (title.length > 3 && title.length < 80) return title;
+            }
+        }
+
+        // 3. Keyword scan for known C-level/VP titles
         var titles = [
             'Chief Information Security Officer', 'Chief Technology Officer', 'Chief Information Officer',
+            'Chief Executive Officer', 'Chief Operating Officer', 'Chief Financial Officer',
+            'Chief Product Officer', 'Chief Revenue Officer', 'Chief Marketing Officer',
+            'Chief Data Officer', 'Chief Digital Officer', 'Chief People Officer',
             'VP of Security', 'VP of Engineering', 'VP Security', 'VP Engineering',
+            'VP of Product', 'VP of Sales', 'VP of Marketing', 'VP of Operations',
             'Head of Security', 'Head of Engineering', 'Head of IT', 'Head of Information Security',
+            'Head of Product', 'Head of Sales', 'Head of People', 'Head of HR',
             'Director of Security', 'Director of Engineering', 'Director of IT',
-            'CISO', 'CTO', 'CIO', 'CSO', 'CPO', 'CEO', 'COO', 'CFO'
+            'Director of Product', 'Director of Sales', 'Director of Operations',
+            'CISO', 'CTO', 'CIO', 'CSO', 'CPO', 'CEO', 'COO', 'CFO', 'CDO', 'CMO', 'CRO',
+            'General Manager', 'Managing Director', 'Country Manager', 'Regional Director'
         ];
-        for (var i = 0; i < titles.length; i++) {
-            if (text.indexOf(titles[i]) !== -1) return titles[i];
+        for (var j = 0; j < titles.length; j++) {
+            if (text.indexOf(titles[j]) !== -1) return titles[j];
         }
-        // Try pattern: "Name, Title at Company" or "Name - Title"
-        var re = new RegExp(name.split(' ')[0] + '[^.]*?(?:is|as|,|-|\\|)\\s*([A-Z][^.]{5,40}?)(?:\\s+at\\s|\\s+@\\s|\\s*[-|])', 'i');
-        var m = text.match(re);
-        if (m) return m[1].trim();
+
+        // 4. LinkedIn title from organic result title: "Name - Title - Company | LinkedIn"
+        if (results && results.organic) {
+            for (var k = 0; k < results.organic.length; k++) {
+                var orgTitle = results.organic[k].title || '';
+                if (/linkedin/i.test(orgTitle)) {
+                    // "First Last - Title - Company | LinkedIn"
+                    var linkedParts = orgTitle.split(/\s*[-–—|]\s*/);
+                    if (linkedParts.length >= 3) {
+                        var candidate = linkedParts[1].trim();
+                        if (candidate.length > 2 && candidate.length < 80 && !/linkedin/i.test(candidate)) return candidate;
+                    }
+                }
+            }
+        }
         return '';
     }
 
     function extractLocation(results) {
+        // 1. knowledgeGraph
+        var kgLoc = getKGAttr(results, 'Location') || getKGAttr(results, 'Headquarters') || getKGAttr(results, 'Born');
+        if (kgLoc) return kgLoc;
+
         var text = allSnippets(results);
         var patterns = [
-            /(?:based in|located in|lives in|from)\s+([A-Z][a-zA-Z\s]+,\s*[A-Z]{2,})/i,
-            /([A-Z][a-z]+(?:\s[A-Z][a-z]+)?,\s*(?:CA|NY|TX|WA|MA|IL|FL|GA|CO|VA|OR|PA|OH|NC|AZ|MD|NJ|CT|MN|WI|MO|TN|IN|MI|SC|DC|UK|Israel))/,
-            /([A-Z][a-z]+(?:\s[A-Z][a-z]+)?\s+(?:Area|Metropolitan|Metro))/
+            // "City, State" or "City, Country"
+            /(?:based in|located in|lives in|location[:\s]+|from)\s+([A-Z][a-zA-Z\s]+(?:,\s*[A-Za-z\s]+)?)/i,
+            // US city/state patterns
+            /([A-Z][a-z]+(?:\s[A-Z][a-z]+)?,\s*(?:Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|New\s+Hampshire|New\s+Jersey|New\s+Mexico|New\s+York|North\s+Carolina|North\s+Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode\s+Island|South\s+Carolina|South\s+Dakota|Tennessee|Texas|Utah|Vermont|Virginia|Washington|West\s+Virginia|Wisconsin|Wyoming|AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC))/,
+            // "Greater X Area" (LinkedIn pattern)
+            /((?:Greater\s+)?[A-Z][a-z]+(?:\s[A-Z][a-z]+)?\s+(?:Area|Metropolitan|Metro)(?:\s+Area)?)/,
+            // International cities with country
+            /([A-Z][a-z]+(?:\s[A-Z][a-z]+)?,\s*(?:France|Germany|UK|United Kingdom|Canada|Australia|Israel|India|Japan|Singapore|Netherlands|Sweden|Switzerland|Spain|Italy|Poland|Ireland|Brazil|Mexico|Belgium|Austria|Denmark|Norway|Finland|Czech Republic|Portugal|Romania|Hungary|Greece|Turkey|South Korea|New Zealand))/i
+        ];
+        for (var i = 0; i < patterns.length; i++) {
+            var m = text.match(patterns[i]);
+            if (m) {
+                var loc = m[1].trim().replace(/\.$/, '');
+                if (loc.length > 2 && loc.length < 60) return loc;
+            }
+        }
+        return '';
+    }
+
+    function extractEmployeeCount(results) {
+        // 1. knowledgeGraph
+        var kgEmp = getKGAttr(results, 'Number of employees') || getKGAttr(results, 'Employees') || getKGAttr(results, 'Size');
+        if (kgEmp) return kgEmp.replace(/[^\d,+\-–\s]/g, '').trim() || kgEmp;
+
+        var text = allSnippets(results);
+        var patterns = [
+            /([\d,]+(?:\s*[\-–]\s*[\d,]+)?)\s*(?:\+\s*)?employees/i,
+            /(?:has|with|employs?|employing|workforce\s+of|team\s+of|over)\s*([\d,]+)/i,
+            /([\d,]+)\s*(?:people|workers|staff|team\s+members)/i,
+            /company\s+size[:\s]*([\d,]+(?:\s*[-–]\s*[\d,]+)?)/i
         ];
         for (var i = 0; i < patterns.length; i++) {
             var m = text.match(patterns[i]);
@@ -97,63 +210,123 @@
         return '';
     }
 
-    function extractEmployeeCount(results) {
-        var text = allSnippets(results);
-        var patterns = [
-            /([\d,]+)\s*(?:\+\s*)?employees/i,
-            /(?:has|with|employs?|workforce of)\s*([\d,]+)/i,
-            /([\d,]+)\s*(?:people|workers|staff)/i
-        ];
-        for (var i = 0; i < patterns.length; i++) {
-            var m = text.match(patterns[i]);
-            if (m) return m[1].replace(/,/g, '');
-        }
-        return '';
-    }
-
     function extractFounded(results) {
+        var kgFounded = getKGAttr(results, 'Founded') || getKGAttr(results, 'Incorporated');
+        if (kgFounded) {
+            var yr = kgFounded.match(/(\d{4})/);
+            return yr ? yr[1] : kgFounded;
+        }
         var text = allSnippets(results);
-        var m = text.match(/(?:founded|established|started|incorporated)\s+(?:in\s+)?(\d{4})/i);
+        var m = text.match(/(?:founded|established|started|incorporated|created)\s+(?:in\s+)?(\d{4})/i);
         return m ? m[1] : '';
     }
 
     function extractTicker(results) {
+        var kgTicker = getKGAttr(results, 'Stock price') || getKGAttr(results, 'Ticker');
+        if (kgTicker) {
+            var tkm = kgTicker.match(/([A-Z]{1,5})/);
+            return tkm ? tkm[0] : '';
+        }
         var text = allSnippets(results);
-        var m = text.match(/\(?(NYSE|NASDAQ|LSE|TSE)\s*[:]\s*([A-Z]{1,5})\)?/i);
-        return m ? m[1].toUpperCase() + ': ' + m[2].toUpperCase() : '';
+        var patterns = [
+            /\(?(NYSE|NASDAQ|LSE|TSE|AMEX|NYSEMKT)\s*[:]\s*([A-Z]{1,5})\)?/i,
+            /(?:ticker|symbol|stock)[:\s]*([A-Z]{1,5})/i,
+            /\$([A-Z]{1,5})(?:\s|,|\.)/
+        ];
+        for (var i = 0; i < patterns.length; i++) {
+            var m = text.match(patterns[i]);
+            if (m) {
+                if (m[2]) return m[1].toUpperCase() + ': ' + m[2].toUpperCase();
+                return m[1].toUpperCase();
+            }
+        }
+        return '';
     }
 
     function extractIndustry(results) {
+        // 1. knowledgeGraph type or description
+        var kg = getKG(results);
+        var kgType = kg.type || '';
+        var kgIndustry = getKGAttr(results, 'Industry') || getKGAttr(results, 'Type') || getKGAttr(results, 'Sector');
+        if (kgIndustry) return kgIndustry;
+        if (kgType && kgType.length < 40 && !/person|profile/i.test(kgType)) return kgType;
+
         var text = allSnippets(results);
+        // Look for "industry: X" patterns first
+        var indMatch = text.match(/(?:industry|sector|operates in|specializ(?:es|ing) in)[:\s]+([A-Z][a-zA-Z\s&\/,]+?)(?:\.|,\s|$)/i);
+        if (indMatch && indMatch[1].length < 50) return indMatch[1].trim();
+
         var industries = [
-            'Enterprise Software', 'Cybersecurity', 'Cloud Computing', 'SaaS', 'FinTech',
-            'Healthcare', 'E-commerce', 'Artificial Intelligence', 'Data Analytics',
-            'Information Technology', 'Financial Services', 'Telecommunications',
-            'Semiconductor', 'Biotechnology', 'Media', 'Retail', 'Manufacturing',
-            'Professional Services', 'Consulting', 'Education', 'Real Estate',
-            'Automotive', 'Aerospace', 'Defense', 'Energy', 'Insurance',
-            'Human Resources', 'Marketing Technology', 'Developer Tools',
-            'Security', 'Observability', 'Search', 'Database'
+            'Enterprise Software', 'Cybersecurity', 'Cloud Computing', 'SaaS', 'FinTech', 'Fintech',
+            'Healthcare', 'Health Tech', 'E-commerce', 'Ecommerce', 'Artificial Intelligence',
+            'Data Analytics', 'Information Technology', 'IT Services', 'IT Consulting',
+            'Financial Services', 'Banking', 'Telecommunications', 'Telecom',
+            'Semiconductor', 'Biotechnology', 'Biotech', 'Media', 'Digital Media',
+            'Retail', 'Manufacturing', 'Professional Services', 'Consulting',
+            'Education', 'EdTech', 'Real Estate', 'PropTech',
+            'Automotive', 'Aerospace', 'Defense', 'Energy', 'Clean Energy',
+            'Insurance', 'InsurTech', 'Human Resources', 'HR Tech',
+            'Marketing Technology', 'MarTech', 'AdTech', 'Developer Tools',
+            'Security', 'Observability', 'Search', 'Database', 'DevOps',
+            'Logistics', 'Supply Chain', 'Legal Tech', 'GovTech',
+            'Gaming', 'Food & Beverage', 'Hospitality', 'Travel',
+            'Construction', 'Mining', 'Agriculture', 'Agtech',
+            'Staffing', 'Recruitment', 'Talent Acquisition',
+            'Engineering Services', 'Technology Consulting', 'Digital Transformation',
+            'Software Development', 'Systems Integration', 'Managed Services'
         ];
+        var textLower = text.toLowerCase();
         for (var i = 0; i < industries.length; i++) {
-            if (text.toLowerCase().indexOf(industries[i].toLowerCase()) !== -1) return industries[i];
+            if (textLower.indexOf(industries[i].toLowerCase()) !== -1) return industries[i];
         }
         return '';
     }
 
     function extractHQ(results) {
+        var kgHQ = getKGAttr(results, 'Headquarters') || getKGAttr(results, 'Headquartered') || getKGAttr(results, 'Location');
+        if (kgHQ) return kgHQ;
+
         var text = allSnippets(results);
-        var m = text.match(/(?:headquartered|headquarters|HQ|based)\s+(?:in|at)\s+([A-Z][a-zA-Z\s]+,\s*[A-Z][a-zA-Z\s]*)/i);
-        return m ? m[1].trim().replace(/\.$/, '') : '';
+        var patterns = [
+            /(?:headquartered|headquarters|HQ)\s+(?:in|at|is in)\s+([A-Z][a-zA-Z\s,]+)/i,
+            /(?:based\s+(?:in|out\s+of))\s+([A-Z][a-zA-Z\s,]+?)(?:\.\s|\swith\s|\sand\s|,\s+(?:the|a|with))/i,
+            /(?:offices?\s+in)\s+([A-Z][a-zA-Z\s]+,\s*[A-Z][a-zA-Z\s]*)/i
+        ];
+        for (var i = 0; i < patterns.length; i++) {
+            var m = text.match(patterns[i]);
+            if (m) {
+                var hq = m[1].trim().replace(/[.,]$/, '');
+                if (hq.length > 2 && hq.length < 60) return hq;
+            }
+        }
+        return '';
     }
 
     function extractWebsite(results, company) {
+        // 1. knowledgeGraph website
+        var kg = getKG(results);
+        if (kg.website) return kg.website;
+
         if (!results || !results.organic) return '';
+        var companyLower = company.toLowerCase().replace(/[\s,.\-]+/g, '');
         for (var i = 0; i < results.organic.length; i++) {
             var link = results.organic[i].link || '';
-            if (link.indexOf(company.toLowerCase()) !== -1 && !link.match(/linkedin|wikipedia|glassdoor|crunchbase/i)) {
-                var m = link.match(/^(https?:\/\/[^/]+)/);
-                if (m) return m[1];
+            var domain = link.match(/^https?:\/\/(?:www\.)?([^/]+)/);
+            if (!domain) continue;
+            var domainName = domain[1].toLowerCase().replace(/[\s.\-]+/g, '');
+            // Skip known aggregator sites
+            if (/linkedin|wikipedia|glassdoor|crunchbase|bloomberg|reuters|indeed|ziprecruiter|builtwith/i.test(domain[1])) continue;
+            // Check if domain contains company name (fuzzy)
+            if (domainName.indexOf(companyLower) !== -1 || companyLower.indexOf(domainName.split('.')[0]) !== -1) {
+                return link.match(/^(https?:\/\/[^/]+)/)[1];
+            }
+        }
+        // Fallback: first non-aggregator link
+        for (var j = 0; j < Math.min(3, (results.organic || []).length); j++) {
+            var lnk = results.organic[j].link || '';
+            if (!/linkedin|wikipedia|glassdoor|crunchbase|bloomberg|indeed/i.test(lnk)) {
+                var dm = lnk.match(/^(https?:\/\/[^/]+)/);
+                if (dm) return dm[1];
             }
         }
         return '';
@@ -161,47 +334,115 @@
 
     function extractATS(results) {
         var text = allSnippets(results);
-        var systems = [
-            'Greenhouse', 'Lever', 'Workday', 'iCIMS', 'Ashby', 'SmartRecruiters',
-            'BambooHR', 'Taleo', 'SAP SuccessFactors', 'Jobvite', 'JazzHR',
-            'Breezy HR', 'Recruitee', 'Pinpoint', 'Teamtailor'
-        ];
-        for (var i = 0; i < systems.length; i++) {
-            if (text.indexOf(systems[i]) !== -1) return systems[i];
+        // Also check URLs for ATS domains
+        var urlText = '';
+        if (results && results.organic) {
+            results.organic.forEach(function (r) { urlText += ' ' + (r.link || ''); });
         }
-        return '';
+        var allText = text + ' ' + urlText;
+
+        var systems = [
+            { name: 'Greenhouse', patterns: ['greenhouse.io', 'Greenhouse'] },
+            { name: 'Lever', patterns: ['lever.co', 'jobs.lever.co'] },
+            { name: 'Workday', patterns: ['myworkdayjobs.com', 'Workday'] },
+            { name: 'iCIMS', patterns: ['icims.com', 'iCIMS'] },
+            { name: 'Ashby', patterns: ['ashbyhq.com', 'Ashby'] },
+            { name: 'SmartRecruiters', patterns: ['smartrecruiters.com', 'SmartRecruiters'] },
+            { name: 'BambooHR', patterns: ['bamboohr.com', 'BambooHR'] },
+            { name: 'Taleo', patterns: ['taleo.net', 'Taleo'] },
+            { name: 'SAP SuccessFactors', patterns: ['successfactors.com', 'SuccessFactors'] },
+            { name: 'Jobvite', patterns: ['jobvite.com', 'Jobvite'] },
+            { name: 'JazzHR', patterns: ['jazzhr.com', 'JazzHR'] },
+            { name: 'Recruitee', patterns: ['recruitee.com', 'Recruitee'] },
+            { name: 'Teamtailor', patterns: ['teamtailor.com', 'Teamtailor'] },
+            { name: 'Breezy HR', patterns: ['breezy.hr', 'Breezy'] },
+            { name: 'Pinpoint', patterns: ['pinpointhq.com'] },
+            { name: 'Avature', patterns: ['avature.net', 'Avature'] },
+            { name: 'Phenom', patterns: ['phenom.com', 'PhenomPeople'] },
+            { name: 'Cornerstone', patterns: ['cornerstoneondemand.com', 'Cornerstone'] }
+        ];
+        var found = [];
+        for (var i = 0; i < systems.length; i++) {
+            for (var j = 0; j < systems[i].patterns.length; j++) {
+                if (allText.indexOf(systems[i].patterns[j]) !== -1) {
+                    found.push(systems[i].name);
+                    break;
+                }
+            }
+        }
+        return found.length ? found.join(', ') : '';
     }
 
     function extractIdTools(results) {
         var text = allSnippets(results);
+        // Also check URLs
+        if (results && results.organic) {
+            results.organic.forEach(function (r) { text += ' ' + (r.link || ''); });
+        }
+        var textLower = text.toLowerCase();
         var tools = [
-            { name: 'Okta', desc: 'IdP - SSO & MFA' },
-            { name: 'Azure AD', desc: 'Identity & Access Management' },
-            { name: 'Microsoft Entra', desc: 'Identity & Access Management' },
-            { name: 'Ping Identity', desc: 'SSO & Federation' },
-            { name: 'OneLogin', desc: 'Cloud Identity' },
-            { name: 'CrowdStrike', desc: 'Endpoint Security' },
-            { name: 'SailPoint', desc: 'Identity Governance' },
-            { name: 'CyberArk', desc: 'Privileged Access Management' },
-            { name: 'Duo Security', desc: 'MFA' },
-            { name: 'Auth0', desc: 'Authentication Platform' },
-            { name: 'ForgeRock', desc: 'Digital Identity' },
-            { name: 'BeyondTrust', desc: 'Privileged Access' },
-            { name: 'Zscaler', desc: 'Zero Trust Security' }
+            { name: 'Okta', patterns: ['okta'], desc: 'IdP - SSO & MFA' },
+            { name: 'Azure AD', patterns: ['azure ad', 'azure active directory'], desc: 'Identity & Access Management' },
+            { name: 'Microsoft Entra', patterns: ['entra id', 'microsoft entra'], desc: 'Identity & Access Management' },
+            { name: 'Ping Identity', patterns: ['ping identity', 'pingone', 'pingfederate'], desc: 'SSO & Federation' },
+            { name: 'OneLogin', patterns: ['onelogin'], desc: 'Cloud Identity' },
+            { name: 'CrowdStrike', patterns: ['crowdstrike'], desc: 'Endpoint Security' },
+            { name: 'SailPoint', patterns: ['sailpoint'], desc: 'Identity Governance' },
+            { name: 'CyberArk', patterns: ['cyberark'], desc: 'Privileged Access Management' },
+            { name: 'Duo Security', patterns: ['duo security', 'duo.com'], desc: 'MFA' },
+            { name: 'Auth0', patterns: ['auth0'], desc: 'Authentication Platform' },
+            { name: 'ForgeRock', patterns: ['forgerock'], desc: 'Digital Identity' },
+            { name: 'BeyondTrust', patterns: ['beyondtrust'], desc: 'Privileged Access' },
+            { name: 'Zscaler', patterns: ['zscaler'], desc: 'Zero Trust Security' },
+            { name: 'Palo Alto Networks', patterns: ['palo alto'], desc: 'Network Security' },
+            { name: 'Fortinet', patterns: ['fortinet', 'fortigate'], desc: 'Network Security' },
+            { name: 'Splunk', patterns: ['splunk'], desc: 'SIEM & Observability' },
+            { name: 'Rapid7', patterns: ['rapid7'], desc: 'Security Analytics' },
+            { name: 'Tenable', patterns: ['tenable'], desc: 'Vulnerability Management' },
+            { name: 'Varonis', patterns: ['varonis'], desc: 'Data Security' },
+            { name: 'Thales', patterns: ['thales'], desc: 'Data Protection' },
+            { name: 'Saviynt', patterns: ['saviynt'], desc: 'Cloud Security' }
         ];
         var found = [];
+        var seen = {};
         for (var i = 0; i < tools.length; i++) {
-            if (text.indexOf(tools[i].name) !== -1) found.push(tools[i]);
+            for (var j = 0; j < tools[i].patterns.length; j++) {
+                if (textLower.indexOf(tools[i].patterns[j]) !== -1 && !seen[tools[i].name]) {
+                    found.push({ name: tools[i].name, description: tools[i].desc });
+                    seen[tools[i].name] = true;
+                    break;
+                }
+            }
         }
         return found;
     }
 
     function extractCompliance(results) {
         var text = allSnippets(results);
-        var standards = ['SOC 2', 'SOC2', 'ISO 27001', 'GDPR', 'HIPAA', 'FedRAMP', 'PCI DSS', 'CCPA', 'SOX', 'NIST', 'CMMC'];
+        var textLower = text.toLowerCase();
+        var standards = [
+            { name: 'SOC 2', patterns: ['soc 2', 'soc2', 'soc-2'] },
+            { name: 'ISO 27001', patterns: ['iso 27001', 'iso27001'] },
+            { name: 'GDPR', patterns: ['gdpr'] },
+            { name: 'HIPAA', patterns: ['hipaa'] },
+            { name: 'FedRAMP', patterns: ['fedramp'] },
+            { name: 'PCI DSS', patterns: ['pci dss', 'pci-dss', 'pci compliance'] },
+            { name: 'CCPA', patterns: ['ccpa'] },
+            { name: 'SOX', patterns: ['sarbanes-oxley', 'sox compliance', ' sox '] },
+            { name: 'NIST', patterns: ['nist'] },
+            { name: 'CMMC', patterns: ['cmmc'] },
+            { name: 'ISO 9001', patterns: ['iso 9001', 'iso9001'] },
+            { name: 'ITAR', patterns: ['itar'] },
+            { name: 'TISAX', patterns: ['tisax'] }
+        ];
         var found = [];
         for (var i = 0; i < standards.length; i++) {
-            if (text.indexOf(standards[i]) !== -1) found.push(standards[i].replace('SOC2', 'SOC 2'));
+            for (var j = 0; j < standards[i].patterns.length; j++) {
+                if (textLower.indexOf(standards[i].patterns[j]) !== -1) {
+                    found.push(standards[i].name);
+                    break;
+                }
+            }
         }
         return found.length ? Array.from(new Set(found)).join(', ') : '';
     }
@@ -212,16 +453,18 @@
         results.organic.forEach(function (r) {
             var title = r.title || '';
             var snippet = r.snippet || '';
-            if (/breach|hack|incident|leak|vulnerability|compromis|attack/i.test(title + ' ' + snippet)) {
-                var dateMatch = snippet.match(/((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{4}|\d{4})/i);
+            var combined = title + ' ' + snippet;
+            if (/breach|hack|incident|leak|vulnerability|compromis|attack|ransomware|phishing|exploit|cyber.?attack/i.test(combined)) {
+                var dateMatch = snippet.match(/((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4})/i);
+                if (!dateMatch) dateMatch = snippet.match(/(\d{4})/);
                 incidents.push({
                     date: dateMatch ? dateMatch[1] : '',
-                    title: title.substring(0, 80),
-                    details: snippet.substring(0, 150)
+                    title: title.substring(0, 100),
+                    details: snippet.substring(0, 200)
                 });
             }
         });
-        return incidents.slice(0, 3);
+        return incidents.slice(0, 5);
     }
 
     function extractPublishedContent(results, name) {
@@ -231,21 +474,32 @@
             var title = r.title || '';
             var url = r.link || '';
             var snippet = r.snippet || '';
-            // Skip LinkedIn and generic profiles
-            if (/linkedin\.com|twitter\.com|x\.com/i.test(url)) return;
-            var dateMatch = snippet.match(/((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}|\d{4})/i);
-            var type = /talk|keynote|conference|summit|webinar|podcast|video/i.test(title + ' ' + snippet) ? 'talk' : 'article';
-            content.push({ title: title.substring(0, 100), url: url, date: dateMatch ? dateMatch[1] : '', type: type });
+            // Skip LinkedIn and social media
+            if (/linkedin\.com\/in|twitter\.com|x\.com\/(?!.*article)/i.test(url)) return;
+            var dateMatch = snippet.match(/((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4})/i);
+            if (!dateMatch) dateMatch = snippet.match(/(\d{4})/);
+            var type = /talk|keynote|conference|summit|webinar|podcast|video|panel|fireside/i.test(title + ' ' + snippet) ? 'talk' : 'article';
+            content.push({ title: title.substring(0, 120), url: url, date: dateMatch ? dateMatch[1] : '', type: type });
         });
         return content.slice(0, 5);
     }
 
     function extractCerts(results) {
         var text = allSnippets(results);
-        var certs = ['CISSP', 'CISM', 'CCSP', 'CISA', 'CEH', 'OSCP', 'CRISC', 'CGEIT', 'CompTIA Security+', 'AWS Solutions Architect', 'GIAC', 'GCIH', 'GSEC'];
+        var textLower = text.toLowerCase();
+        var certs = [
+            { name: 'CISSP', p: 'cissp' }, { name: 'CISM', p: 'cism' }, { name: 'CCSP', p: 'ccsp' },
+            { name: 'CISA', p: 'cisa' }, { name: 'CEH', p: 'ceh' }, { name: 'OSCP', p: 'oscp' },
+            { name: 'CRISC', p: 'crisc' }, { name: 'CGEIT', p: 'cgeit' },
+            { name: 'CompTIA Security+', p: 'security+' },
+            { name: 'AWS Solutions Architect', p: 'aws solutions architect' },
+            { name: 'GIAC', p: 'giac' }, { name: 'GCIH', p: 'gcih' }, { name: 'GSEC', p: 'gsec' },
+            { name: 'PMP', p: 'pmp' }, { name: 'ITIL', p: 'itil' },
+            { name: 'CCNA', p: 'ccna' }, { name: 'CCNP', p: 'ccnp' }
+        ];
         var found = [];
         for (var i = 0; i < certs.length; i++) {
-            if (text.indexOf(certs[i]) !== -1) found.push(certs[i]);
+            if (textLower.indexOf(certs[i].p) !== -1) found.push(certs[i].name);
         }
         return found;
     }
@@ -254,19 +508,41 @@
         var items = [];
         if (!results || !results.organic) return items;
         var text = allSnippets(results);
-        // Look for patterns like "Company - Role (Year-Year)" or "Role at Company"
-        var patterns = [
-            /([A-Z][a-zA-Z &.]+)\s*[-–]\s*([A-Z][a-zA-Z &/]+)\s*\((\d{4})\s*[-–]\s*(Present|\d{4})\)/gi,
-            /([A-Z][a-zA-Z &/]+)\s+at\s+([A-Z][a-zA-Z &.]+)/gi
-        ];
         var seen = {};
+
+        // Pattern 1: "Company - Role (Year-Year)"
+        var p1 = /([A-Z][a-zA-Z &.]+)\s*[-–—]\s*([A-Z][a-zA-Z &\/]+)\s*\((\d{4})\s*[-–—]\s*(Present|\d{4})\)/gi;
         var m;
-        m = patterns[0].exec(text);
-        while (m !== null) {
+        while ((m = p1.exec(text)) !== null) {
             var entry = m[1].trim() + ' - ' + m[2].trim() + ' (' + m[3] + '-' + m[4] + ')';
             if (!seen[entry]) { items.push(entry); seen[entry] = true; }
-            m = patterns[0].exec(text);
         }
+
+        // Pattern 2: "Role at Company" from LinkedIn snippets
+        if (items.length === 0) {
+            var p2 = /(?:worked as|served as|was|joined as)\s+([A-Z][a-zA-Z\s&\/]+?)\s+(?:at|for)\s+([A-Z][a-zA-Z\s&.]+)/gi;
+            while ((m = p2.exec(text)) !== null) {
+                var entry2 = m[2].trim() + ' - ' + m[1].trim();
+                if (!seen[entry2] && entry2.length < 80) { items.push(entry2); seen[entry2] = true; }
+            }
+        }
+
+        // Pattern 3: From LinkedIn experience section text
+        if (items.length === 0) {
+            var p3 = /Experience[:\s]+(.+?)(?:Education|Skills|$)/i;
+            var expMatch = text.match(p3);
+            if (expMatch) {
+                var expParts = expMatch[1].split(/[·•|]/);
+                expParts.forEach(function (part) {
+                    var clean = part.trim();
+                    if (clean.length > 5 && clean.length < 80 && !seen[clean]) {
+                        items.push(clean);
+                        seen[clean] = true;
+                    }
+                });
+            }
+        }
+
         return items.slice(0, 5);
     }
 
@@ -311,11 +587,30 @@
         if (detailEl && detail) detailEl.textContent = detail;
     }
 
+    // Debug logging helper
+    function logDebug(label, data) {
+        console.group('[DemoBrief] ' + label);
+        console.log(data);
+        if (data && data.knowledgeGraph) {
+            console.log('  knowledgeGraph:', data.knowledgeGraph);
+        }
+        if (data && data.organic) {
+            console.log('  organic results:', data.organic.length);
+            data.organic.forEach(function (r, i) {
+                console.log('  [' + i + '] ' + r.title);
+                console.log('       ' + (r.snippet || '').substring(0, 120));
+            });
+        }
+        console.groupEnd();
+    }
+
     async function runResearch(linkedInUrl, companyName, apiKey) {
         var parsed = parseLinkedInUrl(linkedInUrl);
         if (!parsed) throw new Error('Invalid LinkedIn URL');
 
         var name = parsed.name;
+        console.log('[DemoBrief] Starting research for:', name, 'at', companyName);
+
         var data = {
             prospect: {
                 name: name,
@@ -345,10 +640,11 @@
         await delay(200);
         setProgress('parse', 'done', name);
 
-        // Step 2: Prospect profile
+        // Step 2: Prospect profile — simple name + company search
         setProgress('prospect', 'active');
         try {
-            var prospectResults = await serperSearch('"' + name + '" "' + companyName + '" LinkedIn profile', apiKey);
+            var prospectResults = await serperSearch(name + ' ' + companyName + ' LinkedIn', apiKey);
+            logDebug('Prospect search', prospectResults);
             data.prospect.title = extractTitle(prospectResults, name);
             data.prospect.location = extractLocation(prospectResults);
             data.prospect.certifications = extractCerts(prospectResults);
@@ -358,23 +654,27 @@
             if (data.prospect.location) found.push(data.prospect.location);
             setProgress('prospect', 'done', found.join(' | ') || 'Limited data');
         } catch (e) {
+            console.error('[DemoBrief] Prospect search error:', e);
             setProgress('prospect', 'error', e.message);
         }
 
-        // Step 3: Published content
+        // Step 3: Published content — broader search
         setProgress('content', 'active');
         try {
-            var contentResults = await serperSearch('"' + name + '" blog OR article OR keynote OR conference identity security fraud', apiKey);
+            var contentResults = await serperSearch(name + ' article OR talk OR keynote OR blog OR interview', apiKey);
+            logDebug('Content search', contentResults);
             data.prospect.published_content = extractPublishedContent(contentResults, name);
             setProgress('content', 'done', data.prospect.published_content.length + ' items found');
         } catch (e) {
+            console.error('[DemoBrief] Content search error:', e);
             setProgress('content', 'error', e.message);
         }
 
-        // Step 4: Company overview
+        // Step 4: Company overview — let Google/Serper find the knowledge graph
         setProgress('company', 'active');
         try {
-            var companyResults = await serperSearch(companyName + ' company overview employees headquarters founded industry', apiKey);
+            var companyResults = await serperSearch(companyName + ' company', apiKey);
+            logDebug('Company search', companyResults);
             data.company.industry = extractIndustry(companyResults);
             data.company.founded = extractFounded(companyResults);
             data.company.ticker = extractTicker(companyResults);
@@ -382,44 +682,79 @@
             data.company.website = extractWebsite(companyResults, companyName);
             data.company.employee_count = extractEmployeeCount(companyResults);
             data.company.size = data.company.employee_count ? data.company.employee_count + ' employees' : '';
-            var companyFound = [data.company.industry, data.company.headquarters].filter(Boolean);
+
+            // Extract product description from KG or snippets
+            var kg = getKG(companyResults);
+            if (kg.description) data.company.product_description = kg.description;
+            if (!data.company.product_description) {
+                // Try first organic snippet that looks like a description
+                if (companyResults && companyResults.organic) {
+                    for (var ci = 0; ci < Math.min(3, companyResults.organic.length); ci++) {
+                        var snip = companyResults.organic[ci].snippet || '';
+                        if (snip.length > 40 && !/linkedin|glassdoor/i.test(companyResults.organic[ci].link || '')) {
+                            data.company.product_description = snip.substring(0, 200);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            var companyFound = [data.company.industry, data.company.headquarters, data.company.employee_count ? data.company.employee_count + ' emp' : ''].filter(Boolean);
             setProgress('company', 'done', companyFound.join(' | ') || 'Limited data');
         } catch (e) {
+            console.error('[DemoBrief] Company search error:', e);
             setProgress('company', 'error', e.message);
         }
 
-        // Step 5: Hiring infrastructure
+        // Step 5: Hiring infrastructure — search careers page
         setProgress('hiring', 'active');
         try {
-            var hiringResults = await serperSearch(companyName + ' careers ATS applicant tracking system hiring remote jobs', apiKey);
+            var hiringResults = await serperSearch(companyName + ' careers jobs hiring', apiKey);
+            logDebug('Hiring search', hiringResults);
             data.company.ats = extractATS(hiringResults);
-            setProgress('hiring', 'done', data.company.ats ? 'ATS: ' + data.company.ats : 'Limited data');
+
+            // Try to count remote jobs from results
+            var remoteText = allSnippets(hiringResults);
+            var remoteMatch = remoteText.match(/(\d+)\s*(?:\+\s*)?(?:remote|work from home|wfh)\s*(?:jobs?|positions?|roles?|openings?)/i);
+            if (remoteMatch) data.company.open_remote_jobs = remoteMatch[1] + ' remote roles';
+            if (!data.company.open_remote_jobs) {
+                var jobMatch = remoteText.match(/(\d+)\s*(?:\+\s*)?(?:open\s+)?(?:jobs?|positions?|roles?|openings?)/i);
+                if (jobMatch) data.company.open_remote_jobs = jobMatch[1] + ' open roles';
+            }
+
+            setProgress('hiring', 'done', data.company.ats ? 'ATS: ' + data.company.ats : (data.company.open_remote_jobs || 'Limited data'));
         } catch (e) {
+            console.error('[DemoBrief] Hiring search error:', e);
             setProgress('hiring', 'error', e.message);
         }
 
-        // Step 6: Security tools
+        // Step 6: Security tools — broader search
         setProgress('security', 'active');
         try {
-            var secResults = await serperSearch(companyName + ' identity access management Okta "Azure AD" SSO MFA compliance SOC', apiKey);
+            var secResults = await serperSearch(companyName + ' security tools compliance SOC GDPR', apiKey);
+            logDebug('Security search', secResults);
             data.company.identity_tools = extractIdTools(secResults);
             data.company.compliance = extractCompliance(secResults);
             var secFound = data.company.identity_tools.map(function (t) { return t.name; }).join(', ');
-            setProgress('security', 'done', secFound || 'Limited data');
+            setProgress('security', 'done', secFound || (data.company.compliance || 'Limited data'));
         } catch (e) {
+            console.error('[DemoBrief] Security search error:', e);
             setProgress('security', 'error', e.message);
         }
 
         // Step 7: Security incidents
         setProgress('incidents', 'active');
         try {
-            var incResults = await serperSearch(companyName + ' security breach incident data leak 2024 2025 2026', apiKey);
+            var incResults = await serperSearch(companyName + ' data breach security incident', apiKey);
+            logDebug('Incidents search', incResults);
             data.company.security_incidents = extractIncidents(incResults);
             setProgress('incidents', 'done', data.company.security_incidents.length + ' incidents found');
         } catch (e) {
+            console.error('[DemoBrief] Incidents search error:', e);
             setProgress('incidents', 'error', e.message);
         }
 
+        console.log('[DemoBrief] Research complete. Data:', data);
         return data;
     }
 
