@@ -45,7 +45,7 @@
         return fetch(SERPER_URL, {
             method: 'POST',
             headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ q: query, num: 10 })
+            body: JSON.stringify({ q: query, num: 10, gl: 'us', hl: 'en' })
         }).then(function (r) {
             if (!r.ok) throw new Error('Search API error: ' + r.status);
             return r.json();
@@ -115,9 +115,9 @@
         // 2. Look for common title patterns in text
         var titlePatterns = [
             // "Name - Title at Company" (LinkedIn format)
-            new RegExp(name.split(' ')[0] + '\\s+[A-Z]\\w*\\s*[-–—|·]\\s*(.{5,60?})(?:\\s+[-–—|·]\\s|\\s+at\\s|$)', 'i'),
+            new RegExp(name.split(' ')[0] + '\\s+[A-Z]\\w*\\s*[-–—|·]\\s*(.{5,60})(?:\\s+[-–—|·]\\s|\\s+at\\s|$)', 'i'),
             // "Title at Company"  or "Title, Company"
-            /(?:^|\.\s+)((?:Chief|Vice|Senior|Head|Director|Manager|Lead|Principal|VP|SVP|EVP|AVP|CTO|CEO|CIO|CISO|CSO|COO|CFO|CPO|CDO|CMO|CRO)[^.]{3,50?}?)(?:\.\s|\s+at\s|\s+@\s|$)/im,
+            /(?:^|\.\s+)((?:Chief|Vice|Senior|Head|Director|Manager|Lead|Principal|VP|SVP|EVP|AVP|CTO|CEO|CIO|CISO|CSO|COO|CFO|CPO|CDO|CMO|CRO)[^.]{3,50}?)(?:\.\s|\s+at\s|\s+@\s|$)/im,
             // "is the Title" or "serves as Title"
             /(?:is\s+(?:the\s+)?|serves?\s+as\s+(?:the\s+)?)((?:Chief|Vice|Senior|Head|Director|Manager|Lead|Principal|VP|SVP|EVP|AVP|CTO|CEO|CIO|CISO|CSO|COO|CFO|CPO|CDO|CMO|CRO)[^.]{3,50})/i
         ];
@@ -587,21 +587,76 @@
         if (detailEl && detail) detailEl.textContent = detail;
     }
 
-    // Debug logging helper
-    function logDebug(label, data) {
-        console.group('[DemoBrief] ' + label);
-        console.log(data);
-        if (data && data.knowledgeGraph) {
-            console.log('  knowledgeGraph:', data.knowledgeGraph);
-        }
-        if (data && data.organic) {
-            console.log('  organic results:', data.organic.length);
-            data.organic.forEach(function (r, i) {
-                console.log('  [' + i + '] ' + r.title);
-                console.log('       ' + (r.snippet || '').substring(0, 120));
+    // Debug storage for raw API responses
+    var debugResponses = [];
+
+    function addDebugResponse(label, query, results, extracted) {
+        debugResponses.push({ label: label, query: query, results: results, extracted: extracted });
+    }
+
+    function renderDebugPanel() {
+        var toggle = document.getElementById('debug-toggle');
+        var panel = document.getElementById('debug-panel');
+        var content = document.getElementById('debug-content');
+        if (!toggle || !content) return;
+
+        toggle.style.display = '';
+        content.innerHTML = '';
+
+        debugResponses.forEach(function (dr, idx) {
+            var step = document.createElement('div');
+            step.className = 'debug-step';
+
+            var organicCount = (dr.results && dr.results.organic) ? dr.results.organic.length : 0;
+            var hasKG = !!(dr.results && dr.results.knowledgeGraph && dr.results.knowledgeGraph.title);
+
+            // Summary of what was found
+            var snippetPreview = '';
+            if (dr.results && dr.results.organic && dr.results.organic[0]) {
+                snippetPreview = (dr.results.organic[0].title || '').substring(0, 80);
+            }
+
+            var extractedStr = '';
+            if (dr.extracted) {
+                var parts = Object.keys(dr.extracted).map(function (k) {
+                    var v = dr.extracted[k];
+                    if (Array.isArray(v)) return k + ': [' + v.length + ']';
+                    if (!v) return k + ': (empty)';
+                    return k + ': ' + String(v).substring(0, 50);
+                });
+                extractedStr = parts.join(' | ');
+            }
+
+            step.innerHTML =
+                '<div class="debug-step-label">' + dr.label + '</div>' +
+                '<div class="debug-step-query">q: ' + escHtml(dr.query) + '</div>' +
+                '<div class="debug-step-summary">' +
+                    organicCount + ' organic results' +
+                    (hasKG ? ' + KnowledgeGraph (' + escHtml(dr.results.knowledgeGraph.title) + ')' : ' (no KG)') +
+                    (snippetPreview ? ' — Top: "' + escHtml(snippetPreview) + '"' : '') +
+                '</div>' +
+                (extractedStr ? '<div class="debug-step-summary" style="color:#059669;">Extracted: ' + escHtml(extractedStr) + '</div>' : '') +
+                '<button type="button" class="debug-show-raw" data-debug-idx="' + idx + '">Show raw JSON</button>' +
+                '<pre class="debug-step-raw" id="debug-raw-' + idx + '"></pre>';
+
+            content.appendChild(step);
+        });
+
+        // Wire up show/hide raw JSON buttons
+        content.querySelectorAll('.debug-show-raw').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var idx = parseInt(this.getAttribute('data-debug-idx'));
+                var pre = document.getElementById('debug-raw-' + idx);
+                if (pre.classList.contains('open')) {
+                    pre.classList.remove('open');
+                    this.textContent = 'Show raw JSON';
+                } else {
+                    pre.textContent = JSON.stringify(debugResponses[idx].results, null, 2);
+                    pre.classList.add('open');
+                    this.textContent = 'Hide raw JSON';
+                }
             });
-        }
-        console.groupEnd();
+        });
     }
 
     async function runResearch(linkedInUrl, companyName, apiKey) {
@@ -609,6 +664,7 @@
         if (!parsed) throw new Error('Invalid LinkedIn URL');
 
         var name = parsed.name;
+        debugResponses = [];
         console.log('[DemoBrief] Starting research for:', name, 'at', companyName);
 
         var data = {
@@ -640,41 +696,59 @@
         await delay(200);
         setProgress('parse', 'done', name);
 
-        // Step 2: Prospect profile — simple name + company search
+        // Step 2: Prospect profile — use site: to get LinkedIn result
         setProgress('prospect', 'active');
+        var prospectQuery = 'site:linkedin.com/in ' + name + ' ' + companyName;
         try {
-            var prospectResults = await serperSearch(name + ' ' + companyName + ' LinkedIn', apiKey);
-            logDebug('Prospect search', prospectResults);
+            var prospectResults = await serperSearch(prospectQuery, apiKey);
+            console.log('[DemoBrief] Prospect results:', prospectResults);
+
             data.prospect.title = extractTitle(prospectResults, name);
             data.prospect.location = extractLocation(prospectResults);
             data.prospect.certifications = extractCerts(prospectResults);
             data.prospect.work_history = extractWorkHistory(prospectResults, name);
+
+            addDebugResponse('Prospect Profile', prospectQuery, prospectResults, {
+                title: data.prospect.title,
+                location: data.prospect.location,
+                certs: data.prospect.certifications,
+                work_history: data.prospect.work_history
+            });
+
             var found = [];
             if (data.prospect.title) found.push(data.prospect.title);
             if (data.prospect.location) found.push(data.prospect.location);
             setProgress('prospect', 'done', found.join(' | ') || 'Limited data');
         } catch (e) {
             console.error('[DemoBrief] Prospect search error:', e);
+            addDebugResponse('Prospect Profile', prospectQuery, { error: e.message }, {});
             setProgress('prospect', 'error', e.message);
         }
 
-        // Step 3: Published content — broader search
+        // Step 3: Published content
         setProgress('content', 'active');
+        var contentQuery = '"' + name + '" article OR talk OR keynote OR blog OR interview';
         try {
-            var contentResults = await serperSearch(name + ' article OR talk OR keynote OR blog OR interview', apiKey);
-            logDebug('Content search', contentResults);
+            var contentResults = await serperSearch(contentQuery, apiKey);
+            console.log('[DemoBrief] Content results:', contentResults);
             data.prospect.published_content = extractPublishedContent(contentResults, name);
+            addDebugResponse('Published Content', contentQuery, contentResults, {
+                items: data.prospect.published_content
+            });
             setProgress('content', 'done', data.prospect.published_content.length + ' items found');
         } catch (e) {
             console.error('[DemoBrief] Content search error:', e);
+            addDebugResponse('Published Content', contentQuery, { error: e.message }, {});
             setProgress('content', 'error', e.message);
         }
 
-        // Step 4: Company overview — let Google/Serper find the knowledge graph
+        // Step 4: Company overview — just the company name to trigger KG
         setProgress('company', 'active');
+        var companyQuery = companyName;
         try {
-            var companyResults = await serperSearch(companyName + ' company', apiKey);
-            logDebug('Company search', companyResults);
+            var companyResults = await serperSearch(companyQuery, apiKey);
+            console.log('[DemoBrief] Company results:', companyResults);
+
             data.company.industry = extractIndustry(companyResults);
             data.company.founded = extractFounded(companyResults);
             data.company.ticker = extractTicker(companyResults);
@@ -687,7 +761,6 @@
             var kg = getKG(companyResults);
             if (kg.description) data.company.product_description = kg.description;
             if (!data.company.product_description) {
-                // Try first organic snippet that looks like a description
                 if (companyResults && companyResults.organic) {
                     for (var ci = 0; ci < Math.min(3, companyResults.organic.length); ci++) {
                         var snip = companyResults.organic[ci].snippet || '';
@@ -699,21 +772,31 @@
                 }
             }
 
+            addDebugResponse('Company Overview', companyQuery, companyResults, {
+                industry: data.company.industry,
+                founded: data.company.founded,
+                hq: data.company.headquarters,
+                website: data.company.website,
+                employees: data.company.employee_count,
+                product: data.company.product_description ? data.company.product_description.substring(0, 60) : ''
+            });
+
             var companyFound = [data.company.industry, data.company.headquarters, data.company.employee_count ? data.company.employee_count + ' emp' : ''].filter(Boolean);
             setProgress('company', 'done', companyFound.join(' | ') || 'Limited data');
         } catch (e) {
             console.error('[DemoBrief] Company search error:', e);
+            addDebugResponse('Company Overview', companyQuery, { error: e.message }, {});
             setProgress('company', 'error', e.message);
         }
 
-        // Step 5: Hiring infrastructure — search careers page
+        // Step 5: Hiring infrastructure
         setProgress('hiring', 'active');
+        var hiringQuery = companyName + ' careers jobs';
         try {
-            var hiringResults = await serperSearch(companyName + ' careers jobs hiring', apiKey);
-            logDebug('Hiring search', hiringResults);
+            var hiringResults = await serperSearch(hiringQuery, apiKey);
+            console.log('[DemoBrief] Hiring results:', hiringResults);
             data.company.ats = extractATS(hiringResults);
 
-            // Try to count remote jobs from results
             var remoteText = allSnippets(hiringResults);
             var remoteMatch = remoteText.match(/(\d+)\s*(?:\+\s*)?(?:remote|work from home|wfh)\s*(?:jobs?|positions?|roles?|openings?)/i);
             if (remoteMatch) data.company.open_remote_jobs = remoteMatch[1] + ' remote roles';
@@ -722,37 +805,58 @@
                 if (jobMatch) data.company.open_remote_jobs = jobMatch[1] + ' open roles';
             }
 
+            addDebugResponse('Hiring', hiringQuery, hiringResults, {
+                ats: data.company.ats,
+                jobs: data.company.open_remote_jobs
+            });
             setProgress('hiring', 'done', data.company.ats ? 'ATS: ' + data.company.ats : (data.company.open_remote_jobs || 'Limited data'));
         } catch (e) {
             console.error('[DemoBrief] Hiring search error:', e);
+            addDebugResponse('Hiring', hiringQuery, { error: e.message }, {});
             setProgress('hiring', 'error', e.message);
         }
 
-        // Step 6: Security tools — broader search
+        // Step 6: Security tools
         setProgress('security', 'active');
+        var secQuery = companyName + ' security compliance';
         try {
-            var secResults = await serperSearch(companyName + ' security tools compliance SOC GDPR', apiKey);
-            logDebug('Security search', secResults);
+            var secResults = await serperSearch(secQuery, apiKey);
+            console.log('[DemoBrief] Security results:', secResults);
             data.company.identity_tools = extractIdTools(secResults);
             data.company.compliance = extractCompliance(secResults);
+
+            addDebugResponse('Security', secQuery, secResults, {
+                tools: data.company.identity_tools,
+                compliance: data.company.compliance
+            });
             var secFound = data.company.identity_tools.map(function (t) { return t.name; }).join(', ');
             setProgress('security', 'done', secFound || (data.company.compliance || 'Limited data'));
         } catch (e) {
             console.error('[DemoBrief] Security search error:', e);
+            addDebugResponse('Security', secQuery, { error: e.message }, {});
             setProgress('security', 'error', e.message);
         }
 
         // Step 7: Security incidents
         setProgress('incidents', 'active');
+        var incQuery = companyName + ' data breach OR security incident OR hack';
         try {
-            var incResults = await serperSearch(companyName + ' data breach security incident', apiKey);
-            logDebug('Incidents search', incResults);
+            var incResults = await serperSearch(incQuery, apiKey);
+            console.log('[DemoBrief] Incidents results:', incResults);
             data.company.security_incidents = extractIncidents(incResults);
+
+            addDebugResponse('Incidents', incQuery, incResults, {
+                incidents: data.company.security_incidents
+            });
             setProgress('incidents', 'done', data.company.security_incidents.length + ' incidents found');
         } catch (e) {
             console.error('[DemoBrief] Incidents search error:', e);
+            addDebugResponse('Incidents', incQuery, { error: e.message }, {});
             setProgress('incidents', 'error', e.message);
         }
+
+        // Render debug panel
+        renderDebugPanel();
 
         console.log('[DemoBrief] Research complete. Data:', data);
         return data;
@@ -1419,6 +1523,23 @@
         toast.textContent = message;
         document.body.appendChild(toast);
         setTimeout(function () { toast.remove(); }, 3000);
+    }
+
+    // ══════════════════════════════════════════
+    // Debug toggle
+    // ══════════════════════════════════════════
+    var debugToggleBtn = document.getElementById('debug-toggle');
+    if (debugToggleBtn) {
+        debugToggleBtn.addEventListener('click', function () {
+            var panel = document.getElementById('debug-panel');
+            if (panel.style.display === 'none') {
+                panel.style.display = '';
+                this.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Hide raw API responses';
+            } else {
+                panel.style.display = 'none';
+                this.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg> Show raw API responses';
+            }
+        });
     }
 
     // ══════════════════════════════════════════

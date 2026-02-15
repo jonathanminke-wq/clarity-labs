@@ -827,6 +827,83 @@ body {
 }
 
 /* ── Responsive ── */
+/* Debug panel */
+.btn-debug-toggle {
+    display: flex; align-items: center; gap: 6px;
+    margin-top: 12px; padding: 6px 12px;
+    background: none; border: 1px dashed var(--border);
+    border-radius: 6px; cursor: pointer;
+    font-size: 12px; color: var(--text-muted);
+    transition: all 0.15s;
+}
+.btn-debug-toggle:hover { border-color: var(--text-muted); color: var(--text); }
+.debug-panel {
+    margin-top: 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #f8fafc;
+    max-height: 400px;
+    overflow-y: auto;
+}
+.debug-panel-header {
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+    background: #f1f5f9;
+    border-radius: 8px 8px 0 0;
+    position: sticky; top: 0;
+}
+.debug-step {
+    border-bottom: 1px solid var(--border);
+    padding: 8px 12px;
+}
+.debug-step:last-child { border-bottom: none; }
+.debug-step-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+.debug-step-query {
+    font-size: 11px;
+    color: #6366f1;
+    font-family: monospace;
+    margin-bottom: 4px;
+}
+.debug-step-summary {
+    font-size: 11px;
+    color: var(--text);
+    margin-bottom: 4px;
+}
+.debug-step-raw {
+    display: none;
+    font-size: 10px;
+    font-family: monospace;
+    white-space: pre-wrap;
+    word-break: break-all;
+    background: #1e293b;
+    color: #e2e8f0;
+    padding: 8px;
+    border-radius: 4px;
+    max-height: 200px;
+    overflow-y: auto;
+    margin-top: 4px;
+}
+.debug-step-raw.open { display: block; }
+.debug-show-raw {
+    font-size: 10px;
+    color: #6366f1;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    text-decoration: underline;
+}
+
 @media (max-width: 1024px) {
     .container { grid-template-columns: 1fr; }
     .panel { max-height: none; overflow: visible; }
