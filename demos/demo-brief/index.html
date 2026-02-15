@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demo Brief Generator | Clarity Labs</title>
+    <link rel="icon" type="image/svg+xml" href="../../favicon.svg">
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="demo-brief.css">
+</head>
+<body>
+
+<!-- Nav -->
+<nav class="nav">
+    <a href="../../" class="nav-brand">
+        <img src="https://cdn.prod.website-files.com/68ca65f64a04c90f13846d37/68ca65f64a04c90f13846dfe_Clarity%20Logo.svg" alt="Clarity" class="nav-logo">
+        <span class="nav-divider"></span>
+        <span class="nav-label">Demo Brief Generator</span>
+    </a>
+</nav>
+
+<!-- Main Content -->
+<div class="container">
+
+    <!-- Left Panel: Form -->
+    <div class="panel panel-form">
+        <div class="panel-header">
+            <h2>New Brief</h2>
+            <p>Fill in prospect details to generate a professional demo brief document.</p>
+        </div>
+
+        <form id="brief-form" autocomplete="off">
+            <!-- Required Fields -->
+            <div class="form-section">
+                <div class="form-section-label">Required</div>
+
+                <div class="form-group">
+                    <label for="prospect-name">Prospect Name</label>
+                    <input type="text" id="prospect-name" placeholder="e.g. Anthony Scarfe" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="company-name">Company Name</label>
+                    <input type="text" id="company-name" placeholder="e.g. Elastic" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="sdr-name">SDR Name</label>
+                    <input type="text" id="sdr-name" placeholder="e.g. Yoni" required>
+                </div>
+            </div>
+
+            <!-- Prospect Details -->
+            <div class="form-section">
+                <button type="button" class="form-section-toggle" data-section="prospect-details">
+                    <span class="form-section-label">Prospect Details</span>
+                    <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+
+                <div class="form-section-body" id="prospect-details">
+                    <div class="form-group">
+                        <label for="prospect-title">Title / Role</label>
+                        <input type="text" id="prospect-title" placeholder="e.g. Chief Information Security Officer">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="prospect-location">Location</label>
+                        <input type="text" id="prospect-location" placeholder="e.g. San Francisco, CA">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="prospect-tenure">Tenure</label>
+                        <input type="text" id="prospect-tenure" placeholder="e.g. 3 years">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="prospect-linkedin">LinkedIn URL</label>
+                        <input type="url" id="prospect-linkedin" placeholder="https://linkedin.com/in/...">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="prospect-team">Team</label>
+                        <input type="text" id="prospect-team" placeholder="e.g. Security & IT (~45 people)">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="prospect-certs">Certifications <span class="hint">comma-separated</span></label>
+                        <input type="text" id="prospect-certs" placeholder="e.g. CISSP, CISM, CCSP">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="prospect-history">Work History <span class="hint">one per line</span></label>
+                        <textarea id="prospect-history" rows="4" placeholder="Elastic - CISO (2023-Present)&#10;Palo Alto Networks - VP Security (2019-2023)"></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="prospect-achievements">Achievements <span class="hint">one per line</span></label>
+                        <textarea id="prospect-achievements" rows="3" placeholder="Led zero-trust transformation across 3,000+ employees&#10;Keynote speaker at RSA Conference 2025"></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Published Content</label>
+                        <div id="published-content-list" class="repeater-list"></div>
+                        <button type="button" class="btn-add" id="add-content-btn">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            Add Content
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Company Details -->
+            <div class="form-section">
+                <button type="button" class="form-section-toggle" data-section="company-details">
+                    <span class="form-section-label">Company Details</span>
+                    <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+
+                <div class="form-section-body" id="company-details">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="company-industry">Industry</label>
+                            <input type="text" id="company-industry" placeholder="e.g. Enterprise Software">
+                        </div>
+                        <div class="form-group">
+                            <label for="company-size">Company Size</label>
+                            <input type="text" id="company-size" placeholder="e.g. 3,200 employees">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="company-hq">Headquarters</label>
+                            <input type="text" id="company-hq" placeholder="e.g. San Francisco, CA">
+                        </div>
+                        <div class="form-group">
+                            <label for="company-founded">Founded</label>
+                            <input type="text" id="company-founded" placeholder="e.g. 2012">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="company-ticker">Stock Ticker</label>
+                            <input type="text" id="company-ticker" placeholder="e.g. NYSE: ESTC">
+                        </div>
+                        <div class="form-group">
+                            <label for="company-website">Website</label>
+                            <input type="url" id="company-website" placeholder="https://...">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="company-product">Product Description</label>
+                        <textarea id="company-product" rows="2" placeholder="Brief description of products/services"></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="company-customers">Customers</label>
+                        <input type="text" id="company-customers" placeholder="e.g. Cisco, eBay, Goldman Sachs, Microsoft">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="company-culture">Culture</label>
+                        <input type="text" id="company-culture" placeholder="e.g. Distributed-first, open source values">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Hiring & Recruitment -->
+            <div class="form-section">
+                <button type="button" class="form-section-toggle" data-section="hiring-details">
+                    <span class="form-section-label">Hiring & Recruitment</span>
+                    <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+
+                <div class="form-section-body" id="hiring-details">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="company-employees">Employee Count</label>
+                            <input type="text" id="company-employees" placeholder="e.g. 3,200">
+                        </div>
+                        <div class="form-group">
+                            <label for="company-growth">Growth</label>
+                            <input type="text" id="company-growth" placeholder="e.g. 12% YoY">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="company-ats">ATS System</label>
+                            <select id="company-ats">
+                                <option value="">Select or type below</option>
+                                <option value="Greenhouse">Greenhouse</option>
+                                <option value="Lever">Lever</option>
+                                <option value="Workday">Workday</option>
+                                <option value="iCIMS">iCIMS</option>
+                                <option value="Ashby">Ashby</option>
+                                <option value="SmartRecruiters">SmartRecruiters</option>
+                                <option value="BambooHR">BambooHR</option>
+                                <option value="Taleo">Taleo</option>
+                                <option value="SAP SuccessFactors">SAP SuccessFactors</option>
+                                <option value="Jobvite">Jobvite</option>
+                            </select>
+                            <input type="text" id="company-ats-custom" placeholder="Or type custom ATS name" style="margin-top: 6px;">
+                        </div>
+                        <div class="form-group">
+                            <label for="company-remote-jobs">Open Remote Jobs</label>
+                            <input type="text" id="company-remote-jobs" placeholder="e.g. 89">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="company-hiring-activity">Hiring Activity</label>
+                        <input type="text" id="company-hiring-activity" placeholder="e.g. Active hiring, 150+ open positions">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="company-team-structure">Team Structure</label>
+                        <input type="text" id="company-team-structure" placeholder="e.g. Engineering (1,200), Sales (800), G&A (500)">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Identity & Security -->
+            <div class="form-section">
+                <button type="button" class="form-section-toggle" data-section="security-details">
+                    <span class="form-section-label">Identity & Security</span>
+                    <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+
+                <div class="form-section-body" id="security-details">
+                    <div class="form-group">
+                        <label>Identity & Access Tools</label>
+                        <div id="identity-tools-list" class="repeater-list"></div>
+                        <button type="button" class="btn-add" id="add-tool-btn">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            Add Tool
+                        </button>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="company-compliance">Compliance Standards</label>
+                        <input type="text" id="company-compliance" placeholder="e.g. SOC 2 Type II, ISO 27001, GDPR, FedRAMP">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Security Incidents</label>
+                        <div id="incidents-list" class="repeater-list"></div>
+                        <button type="button" class="btn-add" id="add-incident-btn">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            Add Incident
+                        </button>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="hiring-security-notes">Hiring Security Notes <span class="hint">one per line</span></label>
+                        <textarea id="hiring-security-notes" rows="2" placeholder="e.g. Uses multi-step identity verification for remote hires"></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Logo Upload -->
+            <div class="form-section">
+                <div class="form-section-label">Company Logo (optional)</div>
+                <div class="logo-upload" id="logo-upload-area">
+                    <input type="file" id="logo-file" accept=".png,.jpg,.jpeg,.svg" hidden>
+                    <div class="logo-upload-inner" id="logo-upload-inner">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        <span>Drop logo here or click to browse</span>
+                        <span class="hint">PNG, JPG, or SVG</span>
+                    </div>
+                    <div class="logo-preview" id="logo-preview" style="display: none;">
+                        <img id="logo-preview-img" alt="Logo preview">
+                        <button type="button" id="logo-remove-btn" class="btn-remove-logo">Remove</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Import JSON -->
+            <div class="form-section">
+                <button type="button" class="form-section-toggle" data-section="json-import">
+                    <span class="form-section-label">Import from JSON</span>
+                    <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <div class="form-section-body" id="json-import">
+                    <p class="form-hint-block">Paste JSON output from the CLI tool to auto-fill all fields.</p>
+                    <textarea id="json-input" rows="4" placeholder='{"prospect": {...}, "company": {...}}'></textarea>
+                    <button type="button" class="btn-secondary" id="import-json-btn">Import JSON</button>
+                </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="form-actions">
+                <button type="button" class="btn-secondary" id="export-json-btn">Export JSON</button>
+                <button type="submit" class="btn-primary" id="generate-btn">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                    Generate Brief
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Right Panel: Preview -->
+    <div class="panel panel-preview">
+        <div class="panel-header">
+            <h2>Preview</h2>
+            <div class="preview-actions" id="preview-actions" style="display: none;">
+                <button type="button" class="btn-icon" id="download-docx-btn" title="Download .docx">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    .docx
+                </button>
+            </div>
+        </div>
+
+        <!-- Empty State -->
+        <div class="preview-empty" id="preview-empty">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="1.5">
+                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+                <polyline points="10 9 9 9 8 9"/>
+            </svg>
+            <p>Fill in the form and click <strong>Generate Brief</strong> to preview your document.</p>
+        </div>
+
+        <!-- Document Preview -->
+        <div class="preview-doc" id="preview-doc" style="display: none;">
+            <div class="doc-page" id="doc-page">
+                <!-- Populated by JS -->
+            </div>
+        </div>
+
+        <!-- Generating State -->
+        <div class="preview-loading" id="preview-loading" style="display: none;">
+            <div class="spinner"></div>
+            <p>Generating document...</p>
+        </div>
+    </div>
+
+</div>
+
+<script src="https://unpkg.com/docx@9.5.0/build/index.umd.js"></script>
+<script src="demo-brief.js"></script>
+</body>
+</html>
