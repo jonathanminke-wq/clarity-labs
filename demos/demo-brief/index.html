@@ -29,6 +29,10 @@
     <div class="panel panel-form">
         <div class="panel-header">
             <h2>New Brief</h2>
+            <button type="button" class="btn-new-brief" id="new-brief-btn" style="display: none;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                New Brief
+            </button>
             <p>Paste a LinkedIn URL to auto-research the prospect and generate a professional brief.</p>
         </div>
 
@@ -325,16 +329,19 @@
             </div>
         </div>
 
-        <!-- Empty State -->
+        <!-- Empty State / History -->
         <div class="preview-empty" id="preview-empty">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="1.5">
-                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
-                <polyline points="14 2 14 8 20 8"/>
-                <line x1="16" y1="13" x2="8" y2="13"/>
-                <line x1="16" y1="17" x2="8" y2="17"/>
-                <polyline points="10 9 9 9 8 9"/>
-            </svg>
-            <p>Paste a LinkedIn URL and click <strong>Research &amp; Generate</strong> to get started.</p>
+            <div id="history-section" style="display: none;"></div>
+            <div id="empty-fallback" class="empty-fallback">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="1.5">
+                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                    <line x1="16" y1="13" x2="8" y2="13"/>
+                    <line x1="16" y1="17" x2="8" y2="17"/>
+                    <polyline points="10 9 9 9 8 9"/>
+                </svg>
+                <p>Paste a LinkedIn URL and click <strong>Research &amp; Generate</strong> to get started.</p>
+            </div>
         </div>
 
         <!-- Document Preview -->

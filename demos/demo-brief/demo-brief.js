@@ -7,6 +7,8 @@
     'use strict';
 
     var STORAGE_KEY = 'clarity_demo_brief_settings';
+    var HISTORY_STORAGE_KEY = 'clarity_demo_brief_history';
+    var HISTORY_MAX = 50;
     var SERPER_URL = 'https://google.serper.dev/search';
 
     // ══════════════════════════════════════════
@@ -18,6 +20,82 @@
     function saveSettings(s) { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); }
     function getApiKey() { return (loadSettings().serperApiKey || '').trim(); }
     function getNetrowsApiKey() { return (loadSettings().netrowsApiKey || '').trim(); }
+
+    // ══════════════════════════════════════════
+    // Brief History Store (localStorage)
+    // ══════════════════════════════════════════
+    var BriefHistoryStore = {
+        getAll: function () {
+            try { return JSON.parse(localStorage.getItem(HISTORY_STORAGE_KEY)) || []; }
+            catch (e) { return []; }
+        },
+        save: function (entry) {
+            var all = this.getAll();
+            // Replace if same id exists (re-save)
+            all = all.filter(function (e) { return e.id !== entry.id; });
+            all.unshift(entry);
+            if (all.length > HISTORY_MAX) all = all.slice(0, HISTORY_MAX);
+            localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(all));
+        },
+        remove: function (id) {
+            var all = this.getAll().filter(function (e) { return e.id !== id; });
+            localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(all));
+        },
+        getById: function (id) {
+            return this.getAll().find(function (e) { return e.id === id; }) || null;
+        }
+    };
+
+    function generateBriefId() {
+        return 'brief_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+    }
+
+    function createHistoryEntry(data, logs) {
+        return {
+            id: generateBriefId(),
+            prospect_name: (data.prospect && data.prospect.name) || '',
+            company_name: (data.company && data.company.name) || '',
+            sdr_name: data.sdr_name || '',
+            created_at: new Date().toISOString(),
+            data: data,
+            // Save trimmed logs (exclude raw results to keep localStorage size manageable)
+            research_logs: (logs || []).map(function (dr) {
+                return {
+                    label: dr.label,
+                    query: dr.query,
+                    extracted: dr.extracted,
+                    source: dr.source,
+                    timestamp: dr.timestamp,
+                    // Keep a small summary instead of full raw results
+                    result_summary: dr.results && dr.results.error
+                        ? { error: dr.results.error }
+                        : dr.results && dr.results.organic
+                            ? { organic_count: dr.results.organic.length, has_kg: !!(dr.results.knowledgeGraph && dr.results.knowledgeGraph.title) }
+                            : dr.results && dr.results.firstName
+                                ? { type: 'netrows_profile', name: (dr.results.firstName || '') + ' ' + (dr.results.lastName || '') }
+                                : dr.results && dr.results.data && dr.results.data.name
+                                    ? { type: 'netrows_company', name: dr.results.data.name }
+                                    : dr.results && dr.results.data && Array.isArray(dr.results.data)
+                                        ? { type: 'netrows_list', count: dr.results.data.length }
+                                        : { type: 'unknown' }
+                };
+            })
+        };
+    }
+
+    function formatRelativeDate(isoStr) {
+        var d = new Date(isoStr);
+        var now = new Date();
+        var diff = now - d;
+        var mins = Math.floor(diff / 60000);
+        if (mins < 1) return 'Just now';
+        if (mins < 60) return mins + 'm ago';
+        var hrs = Math.floor(mins / 60);
+        if (hrs < 24) return hrs + 'h ago';
+        var days = Math.floor(hrs / 24);
+        if (days < 7) return days + 'd ago';
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
 
     // ══════════════════════════════════════════
     // LinkedIn URL Parser
@@ -1172,8 +1250,19 @@
     // Debug storage for raw API responses
     var debugResponses = [];
 
-    function addDebugResponse(label, query, results, extracted) {
-        debugResponses.push({ label: label, query: query, results: results, extracted: extracted });
+    function addDebugResponse(label, query, results, extracted, source) {
+        debugResponses.push({
+            label: label,
+            query: query,
+            results: results,
+            extracted: extracted,
+            source: source || (
+                /netrows/i.test(label) ? 'netrows' :
+                /serper|site:|linkedin\.com/i.test(query) ? 'serper' :
+                'serper'
+            ),
+            timestamp: new Date().toISOString()
+        });
     }
 
     function renderDebugPanel() {
@@ -1185,17 +1274,55 @@
         toggle.style.display = '';
         content.innerHTML = '';
 
+        // Show run summary header
+        var netrowsCount = 0, serperCount = 0;
+        debugResponses.forEach(function (dr) {
+            if (dr.source === 'netrows') netrowsCount++;
+            else serperCount++;
+        });
+        var summary = document.createElement('div');
+        summary.style.cssText = 'padding:8px 12px;background:#f1f5f9;border-radius:6px;margin-bottom:12px;font-size:12px;color:#475569;display:flex;gap:12px;align-items:center;';
+        summary.innerHTML =
+            '<span>' + debugResponses.length + ' API calls</span>' +
+            (netrowsCount ? '<span style="background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:4px;font-weight:600;">Netrows: ' + netrowsCount + '</span>' : '') +
+            (serperCount ? '<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-weight:600;">Serper: ' + serperCount + '</span>' : '') +
+            (debugResponses.length > 0 && debugResponses[0].timestamp ? '<span style="margin-left:auto;">' + new Date(debugResponses[0].timestamp).toLocaleTimeString() + '</span>' : '');
+        content.appendChild(summary);
+
         debugResponses.forEach(function (dr, idx) {
             var step = document.createElement('div');
             step.className = 'debug-step';
 
             var organicCount = (dr.results && dr.results.organic) ? dr.results.organic.length : 0;
             var hasKG = !!(dr.results && dr.results.knowledgeGraph && dr.results.knowledgeGraph.title);
+            var isNetrows = dr.source === 'netrows';
+            var isError = dr.results && dr.results.error;
+
+            // Source badge
+            var sourceBadge = isNetrows
+                ? '<span style="display:inline-block;background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700;margin-right:6px;vertical-align:middle;">NETROWS</span>'
+                : '<span style="display:inline-block;background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700;margin-right:6px;vertical-align:middle;">SERPER</span>';
 
             // Summary of what was found
             var snippetPreview = '';
             if (dr.results && dr.results.organic && dr.results.organic[0]) {
                 snippetPreview = (dr.results.organic[0].title || '').substring(0, 80);
+            }
+
+            // For Netrows results, show key fields instead of organic count
+            var resultSummary = '';
+            if (isNetrows && !isError) {
+                var r = dr.results;
+                if (r && r.firstName) resultSummary = 'Profile: ' + (r.firstName || '') + ' ' + (r.lastName || '') + (r.headline ? ' — ' + r.headline.substring(0, 60) : '');
+                else if (r && r.data && r.data.name) resultSummary = 'Company: ' + r.data.name + (r.data.industries ? ' (' + r.data.industries.join(', ') + ')' : '');
+                else if (r && r.data && Array.isArray(r.data)) resultSummary = r.data.length + ' results';
+                else resultSummary = 'Data received';
+            } else if (isError) {
+                resultSummary = 'Error: ' + (dr.results.error || 'unknown');
+            } else {
+                resultSummary = organicCount + ' organic results' +
+                    (hasKG ? ' + KG (' + escHtml(dr.results.knowledgeGraph.title) + ')' : '') +
+                    (snippetPreview ? ' — "' + escHtml(snippetPreview) + '"' : '');
             }
 
             var extractedStr = '';
@@ -1209,14 +1336,12 @@
                 extractedStr = parts.join(' | ');
             }
 
+            var timeStr = dr.timestamp ? '<span style="color:#94a3b8;font-size:10px;margin-left:auto;">' + new Date(dr.timestamp).toLocaleTimeString() + '</span>' : '';
+
             step.innerHTML =
-                '<div class="debug-step-label">' + dr.label + '</div>' +
+                '<div class="debug-step-label" style="display:flex;align-items:center;">' + sourceBadge + escHtml(dr.label) + timeStr + '</div>' +
                 '<div class="debug-step-query">q: ' + escHtml(dr.query) + '</div>' +
-                '<div class="debug-step-summary">' +
-                    organicCount + ' organic results' +
-                    (hasKG ? ' + KnowledgeGraph (' + escHtml(dr.results.knowledgeGraph.title) + ')' : ' (no KG)') +
-                    (snippetPreview ? ' — Top: "' + escHtml(snippetPreview) + '"' : '') +
-                '</div>' +
+                '<div class="debug-step-summary">' + resultSummary + '</div>' +
                 (extractedStr ? '<div class="debug-step-summary" style="color:#059669;">Extracted: ' + escHtml(extractedStr) + '</div>' : '') +
                 '<button type="button" class="debug-show-raw" data-debug-idx="' + idx + '">Show raw JSON</button>' +
                 '<pre class="debug-step-raw" id="debug-raw-' + idx + '"></pre>';
@@ -2120,6 +2245,9 @@
             previewActions.style.display = '';
             window._lastBriefData = data;
 
+            // Save to history
+            saveBriefToHistory(data);
+
             // Show detailed toast with what was found
             var foundFields = [];
             if (data.prospect.title) foundFields.push('Title');
@@ -2420,6 +2548,7 @@
             previewDoc.style.display = '';
             previewActions.style.display = '';
             window._lastBriefData = data;
+            saveBriefToHistory(data);
             showToast('Brief generated', 'success');
         }, 300);
     });
@@ -2693,6 +2822,147 @@
     }
 
     // ══════════════════════════════════════════
+    // Brief History UI
+    // ══════════════════════════════════════════
+    var newBriefBtn = document.getElementById('new-brief-btn');
+
+    function renderHistory() {
+        var section = document.getElementById('history-section');
+        var fallback = document.getElementById('empty-fallback');
+        var container = document.getElementById('preview-empty');
+        var entries = BriefHistoryStore.getAll();
+
+        if (entries.length === 0) {
+            section.style.display = 'none';
+            fallback.style.display = '';
+            container.classList.remove('has-history');
+            return;
+        }
+
+        fallback.style.display = 'none';
+        section.style.display = '';
+        container.classList.add('has-history');
+
+        var html = '<div class="history-header"><span class="history-title">Recent Briefs</span><span class="history-count">' + entries.length + '</span></div>';
+        entries.forEach(function (entry) {
+            html += '<div class="history-card" data-id="' + escHtml(entry.id) + '">' +
+                '<div class="history-card-body">' +
+                '<div class="history-card-name">' + escHtml(entry.prospect_name || 'Untitled') + '</div>' +
+                '<div class="history-card-company">' + escHtml(entry.company_name || 'Unknown company') + '</div>' +
+                '<div class="history-card-meta">' + escHtml(entry.sdr_name || '') + (entry.sdr_name ? ' &middot; ' : '') + formatRelativeDate(entry.created_at) + '</div>' +
+                '</div>' +
+                '<button type="button" class="history-card-delete" data-delete-id="' + escHtml(entry.id) + '" title="Delete brief">' +
+                '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+                '</button></div>';
+        });
+
+        section.innerHTML = html;
+    }
+
+    function handleHistoryClick(e) {
+        // Delete button
+        var deleteBtn = e.target.closest('[data-delete-id]');
+        if (deleteBtn) {
+            e.stopPropagation();
+            var id = deleteBtn.getAttribute('data-delete-id');
+            BriefHistoryStore.remove(id);
+            renderHistory();
+            showToast('Brief removed', 'success');
+            return;
+        }
+        // Card click — load brief
+        var card = e.target.closest('.history-card');
+        if (card) {
+            var cardId = card.getAttribute('data-id');
+            loadBriefFromHistory(cardId);
+        }
+    }
+
+    function loadBriefFromHistory(id) {
+        var entry = BriefHistoryStore.getById(id);
+        if (!entry || !entry.data) return;
+
+        populateFormFromData(entry.data);
+
+        // Open all sections
+        document.querySelectorAll('.form-section-body').forEach(function (b) { b.classList.add('open'); });
+        document.querySelectorAll('.form-section-toggle').forEach(function (b) { b.classList.add('open'); });
+
+        // Show preview
+        renderPreview(entry.data);
+        previewEmpty.style.display = 'none';
+        previewDoc.style.display = '';
+        previewActions.style.display = '';
+        window._lastBriefData = entry.data;
+
+        // Restore research logs into debug panel
+        if (entry.research_logs && entry.research_logs.length > 0) {
+            debugResponses = entry.research_logs.map(function (log) {
+                return {
+                    label: log.label,
+                    query: log.query,
+                    results: log.result_summary || {},
+                    extracted: log.extracted,
+                    source: log.source,
+                    timestamp: log.timestamp
+                };
+            });
+            renderDebugPanel();
+        } else {
+            // No logs saved for this entry — hide debug panel
+            debugResponses = [];
+            var toggle = document.getElementById('debug-toggle');
+            if (toggle) toggle.style.display = 'none';
+        }
+
+        // Show New Brief button
+        newBriefBtn.style.display = '';
+
+        showToast('Loaded brief for ' + (entry.prospect_name || 'prospect'), 'success');
+    }
+
+    function saveBriefToHistory(data) {
+        var entry = createHistoryEntry(data, debugResponses);
+        BriefHistoryStore.save(entry);
+        renderHistory();
+        newBriefBtn.style.display = '';
+    }
+
+    function resetForNewBrief() {
+        // Reset form
+        document.getElementById('brief-form').reset();
+        // Clear repeaters
+        document.getElementById('published-content-list').innerHTML = '';
+        document.getElementById('identity-tools-list').innerHTML = '';
+        document.getElementById('incidents-list').innerHTML = '';
+        // Hide preview, show empty/history
+        previewDoc.style.display = 'none';
+        previewActions.style.display = 'none';
+        previewLoading.style.display = 'none';
+        previewEmpty.style.display = '';
+        // Collapse form sections
+        document.querySelectorAll('.form-section-body').forEach(function (b) { b.classList.remove('open'); });
+        document.querySelectorAll('.form-section-toggle').forEach(function (b) { b.classList.remove('open'); });
+        // Hide research progress
+        researchProgress.style.display = 'none';
+        window._lastBriefData = null;
+        // Clear debug logs and hide panel
+        debugResponses = [];
+        var debugToggle = document.getElementById('debug-toggle');
+        var debugPanel = document.getElementById('debug-panel');
+        if (debugToggle) debugToggle.style.display = 'none';
+        if (debugPanel) debugPanel.classList.remove('open');
+        // Re-render history
+        renderHistory();
+    }
+
+    // New Brief button
+    newBriefBtn.addEventListener('click', resetForNewBrief);
+
+    // Delegated click handler on history section
+    document.getElementById('history-section').addEventListener('click', handleHistoryClick);
+
+    // ══════════════════════════════════════════
     // Debug toggle
     // ══════════════════════════════════════════
     var debugToggleBtn = document.getElementById('debug-toggle');
@@ -2713,5 +2983,6 @@
     // Init
     // ══════════════════════════════════════════
     updateSettingsIndicator();
+    renderHistory();
 
 })();

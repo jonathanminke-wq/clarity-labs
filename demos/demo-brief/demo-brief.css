@@ -626,10 +626,143 @@ body {
     text-align: center;
 }
 
+.preview-empty.has-history {
+    align-items: stretch;
+    justify-content: flex-start;
+    text-align: left;
+}
+
 .preview-empty p {
     font-size: 0.82rem;
     max-width: 280px;
     line-height: 1.6;
+}
+
+/* ── Empty Fallback ── */
+.empty-fallback {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    min-height: 400px;
+    text-align: center;
+}
+
+/* ── Brief History ── */
+.history-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.history-title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--navy);
+    letter-spacing: -0.01em;
+}
+
+.history-count {
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    background: var(--border);
+    padding: 1px 7px;
+    border-radius: 10px;
+}
+
+.history-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 12px 14px;
+    background: var(--card);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    margin-bottom: 8px;
+}
+
+.history-card:hover {
+    border-color: var(--green);
+    box-shadow: 0 2px 8px rgba(97, 243, 147, 0.12);
+    transform: translateY(-1px);
+}
+
+.history-card-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.history-card-name {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--navy);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.history-card-company {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.history-card-meta {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.history-card-delete {
+    opacity: 0;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    padding: 4px;
+    border-radius: 6px;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+}
+
+.history-card:hover .history-card-delete {
+    opacity: 1;
+}
+
+.history-card-delete:hover {
+    color: var(--danger);
+    background: var(--danger-muted);
+}
+
+/* ── New Brief Button ── */
+.btn-new-brief {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 12px;
+    background: white;
+    color: var(--text-secondary);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-family: inherit;
+    font-size: 0.72rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.btn-new-brief:hover {
+    border-color: var(--green);
+    color: var(--navy);
+    background: var(--green-muted);
 }
 
 .preview-loading {
