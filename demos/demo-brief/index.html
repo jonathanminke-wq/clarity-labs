@@ -361,10 +361,16 @@
             </button>
         </div>
         <div class="modal-body">
-            <p class="modal-description">Enter your Serper API key to enable automated web research. Get a free key at <a href="https://serper.dev" target="_blank">serper.dev</a> (2,500 free searches).</p>
+            <p class="modal-description">Configure your API keys for research. Netrows provides direct LinkedIn data (primary). Serper provides web search enrichment.</p>
             <div class="form-group">
-                <label for="serper-api-key">Serper API Key</label>
+                <label for="netrows-api-key">Netrows API Key <span style="font-weight:400;color:#64748B;font-size:0.85em">(LinkedIn data — primary)</span></label>
+                <input type="password" id="netrows-api-key" placeholder="pk_live_...">
+                <span class="input-hint">Get a key at <a href="https://netrows.com" target="_blank">netrows.com</a> — direct LinkedIn profile &amp; company data</span>
+            </div>
+            <div class="form-group" style="margin-top: 16px;">
+                <label for="serper-api-key">Serper API Key <span style="font-weight:400;color:#64748B;font-size:0.85em">(web search — enrichment)</span></label>
                 <input type="password" id="serper-api-key" placeholder="Enter your API key">
+                <span class="input-hint">Get a free key at <a href="https://serper.dev" target="_blank">serper.dev</a> (2,500 free searches)</span>
             </div>
             <div class="api-status" id="api-status"></div>
         </div>

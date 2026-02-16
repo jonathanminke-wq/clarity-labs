@@ -17,6 +17,7 @@
     }
     function saveSettings(s) { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); }
     function getApiKey() { return (loadSettings().serperApiKey || '').trim(); }
+    function getNetrowsApiKey() { return (loadSettings().netrowsApiKey || '').trim(); }
 
     // ══════════════════════════════════════════
     // LinkedIn URL Parser
@@ -54,6 +55,211 @@
 
     function testApiKey(apiKey) {
         return serperSearch('test', apiKey).then(function () { return true; });
+    }
+
+    // ══════════════════════════════════════════
+    // Netrows API (direct LinkedIn data)
+    // ══════════════════════════════════════════
+    var NETROWS_BASE = 'https://www.netrows.com/api/v1';
+
+    function callNetrowsAPI(endpoint, params) {
+        var netrowsKey = getNetrowsApiKey();
+        if (!netrowsKey) return Promise.reject(new Error('No Netrows API key'));
+        var url = new URL(NETROWS_BASE + endpoint);
+        Object.keys(params || {}).forEach(function (key) {
+            if (params[key] !== undefined && params[key] !== null) {
+                url.searchParams.append(key, String(params[key]));
+            }
+        });
+        return fetch(url.toString(), {
+            method: 'GET',
+            headers: { 'Authorization': 'Bearer ' + netrowsKey, 'Content-Type': 'application/json' }
+        }).then(function (r) {
+            if (!r.ok) throw new Error('Netrows API error: ' + r.status);
+            return r.json();
+        });
+    }
+
+    // Get full LinkedIn profile via Netrows
+    function netrowsProfileLookup(linkedInUrl) {
+        return callNetrowsAPI('/people/profile', { url: linkedInUrl });
+    }
+
+    // Get company details via Netrows
+    function netrowsCompanyLookup(companyUrl) {
+        return callNetrowsAPI('/companies/details', { url: companyUrl });
+    }
+
+    // Search jobs via Netrows (for remote job counts)
+    function netrowsJobSearch(keywords, opts) {
+        var params = { keywords: keywords, start: 0 };
+        if (opts) {
+            if (opts.onsiteRemote) params.onsiteRemote = opts.onsiteRemote;
+            if (opts.locationId) params.locationId = opts.locationId;
+        }
+        return callNetrowsAPI('/jobs/search', params);
+    }
+
+    // Parse Netrows profile response into our data model
+    function parseNetrowsProfile(profile, companyName) {
+        var result = {
+            name: (profile.firstName || '') + ' ' + (profile.lastName || ''),
+            title: '',
+            location: '',
+            company: '',
+            companyUrl: '',
+            companyTenure: '',
+            roleTenure: '',
+            workHistory: [],
+            certifications: [],
+            team: '',
+            achievements: [],
+            summary: profile.summary || ''
+        };
+
+        // Location from geo
+        if (profile.geo) {
+            result.location = profile.geo.city || '';
+            if (result.location && profile.geo.country) result.location += ', ' + profile.geo.country;
+            else if (profile.geo.country) result.location = profile.geo.country;
+        }
+
+        // Headline as fallback title
+        if (profile.headline) result.title = profile.headline;
+
+        // Parse positions for current company, title, and tenure
+        var positions = profile.position || [];
+        var companyLower = (companyName || '').toLowerCase();
+        var now = new Date();
+
+        // Find current position at the target company
+        var currentCompanyPositions = [];
+        for (var i = 0; i < positions.length; i++) {
+            var pos = positions[i];
+            var posCompany = (pos.companyName || '').toLowerCase();
+            var isCurrentCompany = companyLower && (
+                posCompany.indexOf(companyLower) !== -1 ||
+                companyLower.indexOf(posCompany) !== -1
+            );
+
+            // If no target company, use the first position (current)
+            if (!companyLower && i === 0) {
+                result.company = pos.companyName || '';
+                result.companyUrl = pos.companyURL || '';
+                result.title = pos.title || result.title;
+                if (pos.start && pos.start.year) {
+                    var startDate = new Date(pos.start.year, (pos.start.month || 1) - 1, 1);
+                    result.roleTenure = formatNetrowsDuration(startDate, now);
+                    result.companyTenure = result.roleTenure;
+                }
+                break;
+            }
+
+            if (isCurrentCompany) {
+                currentCompanyPositions.push(pos);
+                if (!result.company) {
+                    result.company = pos.companyName || '';
+                    result.companyUrl = pos.companyURL || '';
+                }
+            }
+        }
+
+        // Calculate tenure from company positions
+        if (currentCompanyPositions.length > 0) {
+            // Current role title = first matching position (most recent)
+            result.title = currentCompanyPositions[0].title || result.title;
+
+            // Role tenure = duration of current role
+            var currentPos = currentCompanyPositions[0];
+            if (currentPos.start && currentPos.start.year) {
+                var roleStart = new Date(currentPos.start.year, (currentPos.start.month || 1) - 1, 1);
+                result.roleTenure = formatNetrowsDuration(roleStart, now);
+            }
+
+            // Company tenure = from earliest position at company to now
+            var earliest = currentCompanyPositions[currentCompanyPositions.length - 1];
+            if (earliest.start && earliest.start.year) {
+                var compStart = new Date(earliest.start.year, (earliest.start.month || 1) - 1, 1);
+                result.companyTenure = formatNetrowsDuration(compStart, now);
+            }
+        }
+
+        // Build work history from all positions
+        for (var j = 0; j < positions.length; j++) {
+            var p = positions[j];
+            var entry = (p.title || 'Unknown Role') + ' at ' + (p.companyName || 'Unknown');
+            if (p.start && p.start.year) {
+                entry += ' (' + p.start.year;
+                if (p.end && p.end.year) entry += '–' + p.end.year;
+                else entry += '–Present';
+                entry += ')';
+            }
+            result.workHistory.push(entry);
+        }
+
+        // Certifications from skills (Netrows may include certifications in skills)
+        if (profile.certifications) {
+            result.certifications = profile.certifications.map(function (c) { return c.name || c; });
+        }
+
+        return result;
+    }
+
+    // Parse Netrows company response into our data model
+    function parseNetrowsCompany(companyData) {
+        var d = companyData.data || companyData;
+        var result = {
+            name: d.name || '',
+            industry: '',
+            size: '',
+            employee_count: '',
+            headquarters: '',
+            website: d.website || '',
+            product_description: d.description || '',
+            specialties: (d.specialities || []).join(', '),
+            founded: d.founded ? String(d.founded.year || d.founded) : '',
+            linkedinUrl: d.linkedinUrl || ''
+        };
+
+        // Industry
+        if (d.industries && d.industries.length > 0) {
+            result.industry = d.industries[0];
+        }
+
+        // Staff count
+        if (d.staffCount) {
+            result.employee_count = String(d.staffCount);
+            result.size = String(d.staffCount) + ' employees';
+        }
+
+        // Headquarters
+        if (d.headquarter) {
+            var hq = d.headquarter;
+            var parts = [];
+            if (hq.city) parts.push(hq.city);
+            if (hq.geographicArea) parts.push(hq.geographicArea);
+            if (hq.country && hq.country.length === 2) {
+                // Convert country code to name for common ones
+                var cc = { US: 'United States', GB: 'United Kingdom', CA: 'Canada', DE: 'Germany', FR: 'France', IL: 'Israel', AU: 'Australia', NL: 'Netherlands', SE: 'Sweden', CH: 'Switzerland', JP: 'Japan', IN: 'India', SG: 'Singapore', IE: 'Ireland' };
+                parts.push(cc[hq.country] || hq.country);
+            }
+            result.headquarters = parts.join(', ');
+        }
+
+        return result;
+    }
+
+    // Format duration between two dates as "X years, Y months"
+    function formatNetrowsDuration(startDate, endDate) {
+        if (!startDate || !endDate) return '';
+        var months = (endDate.getFullYear() - startDate.getFullYear()) * 12 + (endDate.getMonth() - startDate.getMonth());
+        if (months < 0) return '';
+        var years = Math.floor(months / 12);
+        var rem = months % 12;
+        if (years === 0 && rem === 0) return 'Less than a month';
+        if (years === 0) return rem + (rem === 1 ? ' month' : ' months');
+        if (rem === 0) return years + (years === 1 ? ' year' : ' years');
+        return years + (years === 1 ? ' year' : ' years') + ', ' + rem + (rem === 1 ? ' month' : ' months');
     }
 
     // ══════════════════════════════════════════
@@ -1043,10 +1249,35 @@
         debugResponses = [];
         console.log('[DemoBrief] Starting research for:', name, (companyName ? 'at ' + companyName : '(company TBD)'));
 
-        // Step 1: Parse URL & auto-detect company if not provided
+        // Step 1: Parse URL & auto-detect company
         setProgress('parse', 'active');
+        var netrowsKey = getNetrowsApiKey();
+        var netrowsProfile = null;
+        var netrowsCompanyData = null;
+
+        // ── Netrows-first: get LinkedIn profile directly ──
+        if (netrowsKey) {
+            try {
+                console.log('[DemoBrief] Using Netrows API for LinkedIn data');
+                netrowsProfile = await netrowsProfileLookup(parsed.url);
+                addDebugResponse('Netrows Profile', parsed.url, netrowsProfile, {});
+
+                if (netrowsProfile) {
+                    var profileData = parseNetrowsProfile(netrowsProfile, companyName);
+                    if (!companyName && profileData.company) {
+                        companyName = profileData.company;
+                        console.log('[DemoBrief] Netrows auto-detected company:', companyName);
+                    }
+                    name = profileData.name || name;
+                }
+            } catch (e) {
+                console.error('[DemoBrief] Netrows profile lookup error:', e);
+                addDebugResponse('Netrows Profile (error)', parsed.url, { error: e.message }, {});
+            }
+        }
+
+        // Fallback: Serper-based company detection
         if (!companyName) {
-            // Try to detect company from LinkedIn search
             try {
                 var detectResults = await serperSearch('site:linkedin.com/in/' + parsed.slug, apiKey);
                 companyName = extractCompanyFromLinkedIn(detectResults, name);
@@ -1061,7 +1292,7 @@
                 console.error('[DemoBrief] Company auto-detect error:', e);
             }
             if (!companyName) {
-                throw new Error('Could not detect company from LinkedIn — please enter it manually');
+                throw new Error('Could not detect company from LinkedIn — try a different prospect URL');
             }
             console.log('[DemoBrief] Auto-detected company:', companyName);
         }
@@ -1092,88 +1323,101 @@
             sdr_name: document.getElementById('sdr-name').value.trim()
         };
 
-        // Step 2: Prospect profile — try site:linkedin first, then broader search
+        // Step 2: Prospect profile
         setProgress('prospect', 'active');
-        var prospectQuery = 'site:linkedin.com/in "' + name + '" ' + companyName;
-        try {
-            var prospectResults = await serperSearch(prospectQuery, apiKey);
-            console.log('[DemoBrief] Prospect results (site:):', prospectResults);
 
-            // If site: query returned 0 organic results, try a broader search
-            var organicCount = (prospectResults && prospectResults.organic) ? prospectResults.organic.length : 0;
-            if (organicCount === 0) {
-                var fallbackQuery = '"' + name + '" ' + companyName + ' LinkedIn';
-                console.log('[DemoBrief] site: returned 0 results, trying:', fallbackQuery);
-                addDebugResponse('Prospect (site: empty)', prospectQuery, prospectResults, {});
-                prospectQuery = fallbackQuery;
-                prospectResults = await serperSearch(fallbackQuery, apiKey);
-                console.log('[DemoBrief] Prospect results (fallback):', prospectResults);
+        // ── Netrows-first: populate from Netrows profile data ──
+        if (netrowsProfile) {
+            try {
+                var pd = parseNetrowsProfile(netrowsProfile, companyName);
+                data.prospect.title = pd.title || '';
+                data.prospect.location = pd.location || '';
+                data.prospect.company_tenure = pd.companyTenure || '';
+                data.prospect.role_tenure = pd.roleTenure || '';
+                data.prospect.work_history = pd.workHistory || [];
+                data.prospect.certifications = pd.certifications || [];
+
+                addDebugResponse('Prospect (Netrows)', parsed.url, netrowsProfile, {
+                    title: data.prospect.title,
+                    location: data.prospect.location,
+                    company_tenure: data.prospect.company_tenure,
+                    role_tenure: data.prospect.role_tenure,
+                    work_history: data.prospect.work_history,
+                    certs: data.prospect.certifications
+                });
+
+                var found = [];
+                if (data.prospect.title) found.push(data.prospect.title);
+                if (data.prospect.location) found.push(data.prospect.location);
+                setProgress('prospect', 'done', found.join(' | ') || 'Profile loaded');
+                console.log('[DemoBrief] Prospect data from Netrows:', pd);
+            } catch (e) {
+                console.error('[DemoBrief] Netrows profile parse error:', e);
+                netrowsProfile = null; // fall through to Serper
             }
+        }
 
-            data.prospect.title = extractTitle(prospectResults, name);
-            data.prospect.location = extractLocation(prospectResults);
-            data.prospect.certifications = extractCerts(prospectResults);
-            data.prospect.work_history = extractWorkHistory(prospectResults, name);
-            data.prospect.team = extractTeam(prospectResults, name);
-            data.prospect.achievements = extractAchievements(prospectResults, name);
+        // ── Serper fallback/enrichment for prospect ──
+        if (!netrowsProfile || !data.prospect.title) {
+            var prospectQuery = 'site:linkedin.com/in "' + name + '" ' + companyName;
+            try {
+                var prospectResults = await serperSearch(prospectQuery, apiKey);
 
-            // Extract tenure (time at company + time in current role)
-            var tenure = extractTenure(prospectResults, name, companyName);
-            data.prospect.company_tenure = tenure.companyTenure;
-            data.prospect.role_tenure = tenure.roleTenure;
+                var organicCount = (prospectResults && prospectResults.organic) ? prospectResults.organic.length : 0;
+                if (organicCount === 0) {
+                    var fallbackQuery = '"' + name + '" ' + companyName + ' LinkedIn';
+                    addDebugResponse('Prospect (site: empty)', prospectQuery, prospectResults, {});
+                    prospectQuery = fallbackQuery;
+                    prospectResults = await serperSearch(fallbackQuery, apiKey);
+                }
 
-            // If tenure not found from main results, try a focused LinkedIn search
-            if (!data.prospect.company_tenure) {
-                var tenureQuery = '"' + name + '" "' + companyName + '" LinkedIn experience';
-                var tenureResults = await serperSearch(tenureQuery, apiKey);
-                var tenure2 = extractTenure(tenureResults, name, companyName);
-                if (tenure2.companyTenure) data.prospect.company_tenure = tenure2.companyTenure;
-                if (tenure2.roleTenure) data.prospect.role_tenure = tenure2.roleTenure;
-                addDebugResponse('Tenure (follow-up)', tenureQuery, tenureResults, {
+                if (!data.prospect.title) data.prospect.title = extractTitle(prospectResults, name);
+                if (!data.prospect.location) data.prospect.location = extractLocation(prospectResults);
+                if (!data.prospect.certifications.length) data.prospect.certifications = extractCerts(prospectResults);
+                if (!data.prospect.work_history.length) data.prospect.work_history = extractWorkHistory(prospectResults, name);
+                data.prospect.team = extractTeam(prospectResults, name);
+                data.prospect.achievements = extractAchievements(prospectResults, name);
+
+                // Extract tenure if not already from Netrows
+                if (!data.prospect.company_tenure) {
+                    var tenure = extractTenure(prospectResults, name, companyName);
+                    data.prospect.company_tenure = tenure.companyTenure;
+                    data.prospect.role_tenure = tenure.roleTenure;
+
+                    if (!data.prospect.company_tenure) {
+                        var tenureQuery = '"' + name + '" "' + companyName + '" LinkedIn experience';
+                        var tenureResults = await serperSearch(tenureQuery, apiKey);
+                        var tenure2 = extractTenure(tenureResults, name, companyName);
+                        if (tenure2.companyTenure) data.prospect.company_tenure = tenure2.companyTenure;
+                        if (tenure2.roleTenure) data.prospect.role_tenure = tenure2.roleTenure;
+                    }
+                }
+
+                addDebugResponse('Prospect Profile (Serper)', prospectQuery, prospectResults, {
+                    title: data.prospect.title,
+                    location: data.prospect.location,
                     company_tenure: data.prospect.company_tenure,
                     role_tenure: data.prospect.role_tenure
                 });
-            }
 
-            // Show first result title for debugging
-            var firstTitle = (prospectResults && prospectResults.organic && prospectResults.organic[0])
-                ? prospectResults.organic[0].title : '(no results)';
-
-            addDebugResponse('Prospect Profile', prospectQuery, prospectResults, {
-                title: data.prospect.title,
-                location: data.prospect.location,
-                company_tenure: data.prospect.company_tenure,
-                role_tenure: data.prospect.role_tenure,
-                certs: data.prospect.certifications,
-                work_history: data.prospect.work_history,
-                team: data.prospect.team,
-                achievements: data.prospect.achievements,
-                _firstResultTitle: firstTitle
-            });
-
-            // If location not found, try a focused search
-            if (!data.prospect.location) {
-                var locQuery = '"' + name + '" location OR based OR area';
-                var locResults = await serperSearch(locQuery, apiKey);
-                data.prospect.location = extractLocation(locResults);
-                // Also try the company LinkedIn page for location
                 if (!data.prospect.location) {
-                    var compLinkedIn = await serperSearch('site:linkedin.com/company "' + companyName + '"', apiKey);
-                    data.prospect.location = extractLocation(compLinkedIn);
+                    var locQuery = '"' + name + '" location OR based OR area';
+                    var locResults = await serperSearch(locQuery, apiKey);
+                    data.prospect.location = extractLocation(locResults);
+                    if (!data.prospect.location) {
+                        var compLinkedIn = await serperSearch('site:linkedin.com/company "' + companyName + '"', apiKey);
+                        data.prospect.location = extractLocation(compLinkedIn);
+                    }
                 }
-                addDebugResponse('Location (follow-up)', locQuery, locResults, {
-                    location: data.prospect.location
-                });
-            }
 
-            var found = [];
-            if (data.prospect.title) found.push(data.prospect.title);
-            if (data.prospect.location) found.push(data.prospect.location);
-            setProgress('prospect', 'done', found.join(' | ') || 'Top result: ' + firstTitle.substring(0, 60));
-        } catch (e) {
-            console.error('[DemoBrief] Prospect search error:', e);
-            addDebugResponse('Prospect Profile', prospectQuery, { error: e.message }, {});
-            setProgress('prospect', 'error', e.message);
+                var found = [];
+                if (data.prospect.title) found.push(data.prospect.title);
+                if (data.prospect.location) found.push(data.prospect.location);
+                setProgress('prospect', 'done', found.join(' | ') || 'Limited data');
+            } catch (e) {
+                console.error('[DemoBrief] Prospect search error:', e);
+                setProgress('prospect', 'error', e.message);
+            }
         }
 
         // Step 3: Published content
@@ -1193,24 +1437,94 @@
             setProgress('content', 'error', e.message);
         }
 
-        // Step 4: Company overview — just the company name to trigger KG
+        // Step 4: Company overview
         setProgress('company', 'active');
+
+        // ── Netrows-first: get company details directly ──
+        if (netrowsKey) {
+            try {
+                // Determine company LinkedIn URL
+                var companyLinkedInUrl = '';
+                if (netrowsProfile && netrowsProfile.position && netrowsProfile.position.length > 0) {
+                    // Find the position matching the target company
+                    var companyLower = companyName.toLowerCase();
+                    for (var pi = 0; pi < netrowsProfile.position.length; pi++) {
+                        var posName = (netrowsProfile.position[pi].companyName || '').toLowerCase();
+                        if (posName.indexOf(companyLower) !== -1 || companyLower.indexOf(posName) !== -1) {
+                            companyLinkedInUrl = netrowsProfile.position[pi].companyURL || '';
+                            // Also grab industry from position data
+                            if (netrowsProfile.position[pi].companyIndustry) {
+                                data.company.industry = netrowsProfile.position[pi].companyIndustry;
+                            }
+                            if (netrowsProfile.position[pi].companyStaffCountRange) {
+                                data.company.size = netrowsProfile.position[pi].companyStaffCountRange;
+                            }
+                            break;
+                        }
+                    }
+                    // Fallback: use first position's company URL
+                    if (!companyLinkedInUrl && netrowsProfile.position[0].companyURL) {
+                        companyLinkedInUrl = netrowsProfile.position[0].companyURL;
+                    }
+                }
+
+                if (companyLinkedInUrl) {
+                    netrowsCompanyData = await netrowsCompanyLookup(companyLinkedInUrl);
+                    var cd = parseNetrowsCompany(netrowsCompanyData);
+                    addDebugResponse('Company (Netrows)', companyLinkedInUrl, netrowsCompanyData, cd);
+                    console.log('[DemoBrief] Company data from Netrows:', cd);
+
+                    // Populate company data from Netrows
+                    if (cd.industry) data.company.industry = cd.industry;
+                    if (cd.size) data.company.size = cd.size;
+                    if (cd.employee_count) data.company.employee_count = cd.employee_count;
+                    if (cd.headquarters) data.company.headquarters = cd.headquarters;
+                    if (cd.website) data.company.website = cd.website;
+                    if (cd.product_description) data.company.product_description = cd.product_description;
+                    if (cd.founded) data.company.founded = cd.founded;
+                    if (cd.name) data.company.name = cd.name;
+                }
+
+                // Netrows remote job search
+                try {
+                    var jobResults = await netrowsJobSearch(companyName, { onsiteRemote: 'remote' });
+                    addDebugResponse('Remote Jobs (Netrows)', companyName + ' remote', jobResults, {});
+                    if (jobResults && jobResults.data && Array.isArray(jobResults.data)) {
+                        var jobCount = jobResults.data.length;
+                        if (jobResults.total) jobCount = jobResults.total;
+                        if (jobCount > 0) data.company.open_remote_jobs = jobCount + ' remote roles';
+                    } else if (jobResults && jobResults.total) {
+                        data.company.open_remote_jobs = jobResults.total + ' remote roles';
+                    }
+                } catch (je) {
+                    console.error('[DemoBrief] Netrows job search error:', je);
+                }
+
+            } catch (e) {
+                console.error('[DemoBrief] Netrows company lookup error:', e);
+                addDebugResponse('Company (Netrows error)', companyName, { error: e.message }, {});
+            }
+        }
+
+        // ── Serper enrichment for company (fill gaps) ──
         var companyQuery = companyName;
         try {
             var companyResults = await serperSearch(companyQuery, apiKey);
             console.log('[DemoBrief] Company results:', companyResults);
 
-            data.company.industry = extractIndustry(companyResults);
-            data.company.founded = extractFounded(companyResults);
-            data.company.ticker = extractTicker(companyResults);
-            data.company.headquarters = extractHQ(companyResults);
-            data.company.website = extractWebsite(companyResults, companyName);
-            data.company.employee_count = extractEmployeeCount(companyResults);
-            data.company.size = data.company.employee_count ? data.company.employee_count + ' employees' : '';
+            if (!data.company.industry) data.company.industry = extractIndustry(companyResults);
+            if (!data.company.founded) data.company.founded = extractFounded(companyResults);
+            if (!data.company.ticker) data.company.ticker = extractTicker(companyResults);
+            if (!data.company.headquarters) data.company.headquarters = extractHQ(companyResults);
+            if (!data.company.website) data.company.website = extractWebsite(companyResults, companyName);
+            if (!data.company.employee_count) {
+                data.company.employee_count = extractEmployeeCount(companyResults);
+                if (data.company.employee_count) data.company.size = data.company.employee_count + ' employees';
+            }
 
-            // Extract product description from KG or snippets
+            // Extract product description from KG or snippets (if not already from Netrows)
             var kg = getKG(companyResults);
-            if (kg.description) data.company.product_description = kg.description;
+            if (!data.company.product_description && kg.description) data.company.product_description = kg.description;
             if (!data.company.product_description) {
                 if (companyResults && companyResults.organic) {
                     for (var ci = 0; ci < Math.min(3, companyResults.organic.length); ci++) {
@@ -1512,10 +1826,11 @@
     var saveSettingsBtn = document.getElementById('save-settings-btn');
     var testApiBtn = document.getElementById('test-api-btn');
     var apiKeyInput = document.getElementById('serper-api-key');
+    var netrowsKeyInput = document.getElementById('netrows-api-key');
     var apiStatus = document.getElementById('api-status');
 
     function updateSettingsIndicator() {
-        if (getApiKey()) {
+        if (getApiKey() || getNetrowsApiKey()) {
             settingsBtn.classList.add('configured');
             document.getElementById('research-btn').classList.remove('no-api');
         } else {
@@ -1527,6 +1842,7 @@
     settingsBtn.addEventListener('click', function () {
         settingsModal.style.display = '';
         apiKeyInput.value = getApiKey();
+        netrowsKeyInput.value = getNetrowsApiKey();
         apiStatus.textContent = '';
         apiStatus.className = 'api-status';
     });
@@ -1535,23 +1851,39 @@
     settingsModal.addEventListener('click', function (e) { if (e.target === settingsModal) settingsModal.style.display = 'none'; });
 
     saveSettingsBtn.addEventListener('click', function () {
-        saveSettings({ serperApiKey: apiKeyInput.value.trim() });
+        saveSettings({ serperApiKey: apiKeyInput.value.trim(), netrowsApiKey: netrowsKeyInput.value.trim() });
         updateSettingsIndicator();
         settingsModal.style.display = 'none';
         showToast('Settings saved', 'success');
     });
 
     testApiBtn.addEventListener('click', function () {
-        var key = apiKeyInput.value.trim();
-        if (!key) { apiStatus.textContent = 'Enter an API key first'; apiStatus.className = 'api-status error'; return; }
+        var serperKey = apiKeyInput.value.trim();
+        var netrowsKey = netrowsKeyInput.value.trim();
+        if (!serperKey && !netrowsKey) { apiStatus.textContent = 'Enter at least one API key'; apiStatus.className = 'api-status error'; return; }
         apiStatus.textContent = 'Testing...';
         apiStatus.className = 'api-status';
-        testApiKey(key).then(function () {
-            apiStatus.textContent = 'Connection successful';
-            apiStatus.className = 'api-status success';
-        }).catch(function (e) {
-            apiStatus.textContent = 'Failed: ' + e.message;
-            apiStatus.className = 'api-status error';
+        var results = [];
+        var promises = [];
+        if (netrowsKey) {
+            promises.push(
+                fetch('https://www.netrows.com/api/v1/health', { headers: { 'Authorization': 'Bearer ' + netrowsKey } })
+                    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+                    .then(function () { results.push('Netrows OK'); })
+                    .catch(function (e) { results.push('Netrows FAILED: ' + e.message); })
+            );
+        }
+        if (serperKey) {
+            promises.push(
+                testApiKey(serperKey)
+                    .then(function () { results.push('Serper OK'); })
+                    .catch(function (e) { results.push('Serper FAILED: ' + e.message); })
+            );
+        }
+        Promise.all(promises).then(function () {
+            var allOk = results.every(function (r) { return r.indexOf('OK') !== -1; });
+            apiStatus.textContent = results.join(' | ');
+            apiStatus.className = 'api-status ' + (allOk ? 'success' : 'error');
         });
     });
 
@@ -1593,9 +1925,10 @@
     function autoDetectCompany(parsed) {
         var companyInput = document.getElementById('company-name');
 
+        var netrowsKey = getNetrowsApiKey();
         var apiKey = getApiKey();
-        if (!apiKey) {
-            console.log('[DemoBrief] No API key, skipping company auto-detect');
+        if (!apiKey && !netrowsKey) {
+            console.log('[DemoBrief] No API keys, skipping company auto-detect');
             return;
         }
 
@@ -1609,23 +1942,54 @@
         companyInput.placeholder = 'Detecting company...';
         linkedInHint.textContent = 'Detected: ' + parsed.name + ' — looking up company...';
 
-        // Try multiple search strategies
-        var slug = parsed.slug;
         var name = parsed.name;
+        var slug = parsed.slug;
 
-        // Strategy 1: Search by exact slug (most precise)
-        serperSearch('site:linkedin.com/in/' + slug, apiKey).then(function (results) {
-            if (thisLookup.cancelled) return;
-            var company = extractCompanyFromLinkedIn(results, name);
-            if (company) return company;
-
-            // Strategy 2: Search by name + LinkedIn
-            console.log('[DemoBrief] Slug search returned no company, trying name search');
-            return serperSearch('"' + name + '" LinkedIn', apiKey).then(function (results2) {
+        // Strategy 1 (preferred): Netrows direct LinkedIn profile lookup
+        var lookupPromise;
+        if (netrowsKey) {
+            lookupPromise = netrowsProfileLookup(parsed.url).then(function (profile) {
                 if (thisLookup.cancelled) return '';
-                return extractCompanyFromLinkedIn(results2, name);
+                if (profile && profile.position && profile.position.length > 0) {
+                    // Use the first (current) position's company
+                    var company = profile.position[0].companyName || '';
+                    if (company) {
+                        console.log('[DemoBrief] Netrows auto-detected company:', company);
+                        return company;
+                    }
+                }
+                return '';
+            }).catch(function (e) {
+                console.error('[DemoBrief] Netrows auto-detect error:', e);
+                return '';
+            }).then(function (company) {
+                // If Netrows didn't find it and we have Serper, try that
+                if (company) return company;
+                if (!apiKey) return '';
+                return serperSearch('site:linkedin.com/in/' + slug, apiKey).then(function (results) {
+                    if (thisLookup.cancelled) return '';
+                    var c = extractCompanyFromLinkedIn(results, name);
+                    if (c) return c;
+                    return serperSearch('"' + name + '" LinkedIn', apiKey).then(function (r2) {
+                        if (thisLookup.cancelled) return '';
+                        return extractCompanyFromLinkedIn(r2, name);
+                    });
+                });
             });
-        }).then(function (company) {
+        } else {
+            // Strategy 2 (fallback): Serper search
+            lookupPromise = serperSearch('site:linkedin.com/in/' + slug, apiKey).then(function (results) {
+                if (thisLookup.cancelled) return '';
+                var company = extractCompanyFromLinkedIn(results, name);
+                if (company) return company;
+                return serperSearch('"' + name + '" LinkedIn', apiKey).then(function (r2) {
+                    if (thisLookup.cancelled) return '';
+                    return extractCompanyFromLinkedIn(r2, name);
+                });
+            });
+        }
+
+        lookupPromise.then(function (company) {
             if (thisLookup.cancelled) return;
             if (company) {
                 companyInput.value = company;
@@ -1634,7 +1998,7 @@
                 console.log('[DemoBrief] Auto-detected company:', company);
             } else {
                 companyInput.placeholder = 'Could not detect — type company name';
-                linkedInHint.textContent = 'Detected: ' + name + ' — company not found, please type it';
+                linkedInHint.textContent = 'Detected: ' + name + ' — company will be detected during research';
                 linkedInHint.className = 'input-hint';
                 console.log('[DemoBrief] Could not auto-detect company');
             }
@@ -1717,10 +2081,11 @@
         if (!sdr) { showToast('Enter SDR name', 'error'); document.getElementById('sdr-name').focus(); return; }
 
         var apiKey = getApiKey();
-        if (!apiKey) {
+        var netrowsAvailable = !!getNetrowsApiKey();
+        if (!apiKey && !netrowsAvailable) {
             settingsModal.style.display = '';
-            apiKeyInput.focus();
-            showToast('Add your Serper API key to enable research', 'error');
+            netrowsKeyInput.focus();
+            showToast('Add your Netrows or Serper API key to enable research', 'error');
             return;
         }
 
