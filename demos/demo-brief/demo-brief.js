@@ -1861,48 +1861,56 @@
             }
         }
 
-        // Step 6: Hiring infrastructure
+        // Step 6: Hiring infrastructure & remote jobs
         setProgress('hiring', 'active');
+        var totalPositionsFromInsights = data.company.open_remote_jobs || ''; // saved from Netrows insights
         var hiringQuery = companyName + ' careers jobs apply';
         try {
             var hiringResults = await serperSearch(hiringQuery, apiKey);
             console.log('[DemoBrief] Hiring results:', hiringResults);
             data.company.ats = extractATS(hiringResults);
 
-            var remoteText = allSnippets(hiringResults);
-            var remoteMatch = remoteText.match(/(\d+)\s*(?:\+\s*)?(?:remote|work from home|wfh)\s*(?:jobs?|positions?|roles?|openings?)/i);
-            if (remoteMatch) data.company.open_remote_jobs = remoteMatch[1] + ' remote roles';
-            if (!data.company.open_remote_jobs) {
-                var jobMatch = remoteText.match(/(\d+)\s*(?:\+\s*)?(?:open\s+)?(?:jobs?|positions?|roles?|openings?)/i);
-                if (jobMatch) data.company.open_remote_jobs = jobMatch[1] + ' open roles';
+            // Search for remote job count specifically
+            var remoteJobCount = '';
+            try {
+                var remoteQuery = 'site:linkedin.com/jobs "' + companyName + '" remote';
+                var remoteResults = await serperSearch(remoteQuery, apiKey);
+                remoteJobCount = extractRemoteJobsFromLinkedIn(remoteResults);
+                addDebugResponse('Remote Jobs (LinkedIn)', remoteQuery, remoteResults, {
+                    remote_jobs: remoteJobCount
+                });
+
+                if (!remoteJobCount) {
+                    var remoteQuery2 = companyName + ' LinkedIn remote jobs open positions';
+                    var remoteResults2 = await serperSearch(remoteQuery2, apiKey);
+                    remoteJobCount = extractRemoteJobsFromLinkedIn(remoteResults2);
+                    if (!remoteJobCount) {
+                        var remoteText2 = allSnippets(remoteResults2);
+                        var rm2 = remoteText2.match(/(\d[\d,]*)\s*(?:\+\s*)?(?:remote|work from home)\s*(?:jobs?|positions?|roles?|openings?)/i);
+                        if (rm2) remoteJobCount = rm2[1] + ' remote roles';
+                    }
+                    addDebugResponse('Remote Jobs (broad)', remoteQuery2, remoteResults2, {
+                        remote_jobs: remoteJobCount
+                    });
+                }
+            } catch (e) {
+                console.error('[DemoBrief] Remote jobs search error:', e);
             }
 
-            // If remote jobs not found, search LinkedIn jobs page specifically
+            // Combine: total positions (Netrows insights) + remote count (Serper)
+            if (totalPositionsFromInsights && remoteJobCount) {
+                data.company.open_remote_jobs = totalPositionsFromInsights + ', ' + remoteJobCount;
+            } else if (remoteJobCount) {
+                data.company.open_remote_jobs = remoteJobCount;
+            }
+            // Fallback: try generic hiring snippets
             if (!data.company.open_remote_jobs) {
-                try {
-                    var linkedInJobsQuery = 'site:linkedin.com/jobs "' + companyName + '" remote';
-                    var linkedInJobsResults = await serperSearch(linkedInJobsQuery, apiKey);
-                    data.company.open_remote_jobs = extractRemoteJobsFromLinkedIn(linkedInJobsResults);
-                    addDebugResponse('Remote Jobs (LinkedIn)', linkedInJobsQuery, linkedInJobsResults, {
-                        remote_jobs: data.company.open_remote_jobs
-                    });
-
-                    // If still not found, try company LinkedIn page for jobs count
-                    if (!data.company.open_remote_jobs) {
-                        var linkedInJobsQuery2 = companyName + ' LinkedIn remote jobs open positions';
-                        var linkedInJobsResults2 = await serperSearch(linkedInJobsQuery2, apiKey);
-                        data.company.open_remote_jobs = extractRemoteJobsFromLinkedIn(linkedInJobsResults2);
-                        if (!data.company.open_remote_jobs) {
-                            var remoteText2 = allSnippets(linkedInJobsResults2);
-                            var rm2 = remoteText2.match(/(\d[\d,]*)\s*(?:\+\s*)?(?:remote|work from home)\s*(?:jobs?|positions?|roles?|openings?)/i);
-                            if (rm2) data.company.open_remote_jobs = rm2[1] + ' remote roles';
-                        }
-                        addDebugResponse('Remote Jobs (broad)', linkedInJobsQuery2, linkedInJobsResults2, {
-                            remote_jobs: data.company.open_remote_jobs
-                        });
-                    }
-                } catch (e) {
-                    console.error('[DemoBrief] LinkedIn jobs search error:', e);
+                var remoteText = allSnippets(hiringResults);
+                var remoteMatch = remoteText.match(/(\d+)\s*(?:\+\s*)?(?:remote|work from home|wfh)\s*(?:jobs?|positions?|roles?|openings?)/i);
+                if (remoteMatch) data.company.open_remote_jobs = remoteMatch[1] + ' remote roles';
+                if (!data.company.open_remote_jobs) {
+                    var jobMatch = remoteText.match(/(\d+)\s*(?:\+\s*)?(?:open\s+)?(?:jobs?|positions?|roles?|openings?)/i);
+                    if (jobMatch) data.company.open_remote_jobs = jobMatch[1] + ' open roles';
                 }
             }
 
@@ -2914,13 +2922,23 @@
 
         var fn = getBriefFilename(data, 'pdf');
 
+        // Measure content to create a single-page PDF (no splits)
+        var marginMm = 10;
+        var pageWidthMm = 210; // A4 width
+        var contentWidthMm = pageWidthMm - marginMm * 2;
+        var elWidth = docPage.scrollWidth || docPage.offsetWidth;
+        var elHeight = docPage.scrollHeight || docPage.offsetHeight;
+        var scale = contentWidthMm / (elWidth * 25.4 / 96);
+        var contentHeightMm = (elHeight * 25.4 / 96) * scale;
+        var pageHeightMm = contentHeightMm + marginMm * 2;
+
         html2pdf().set({
-            margin: [10, 10, 10, 10],
+            margin: [marginMm, marginMm, marginMm, marginMm],
             filename: fn,
             image: { type: 'jpeg', quality: 0.98 },
             html2canvas: { scale: 2, useCORS: true, logging: false },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-            pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+            jsPDF: { unit: 'mm', format: [pageWidthMm, pageHeightMm], orientation: 'portrait' },
+            pagebreak: { mode: [] }
         }).from(docPage).save().then(function () {
             showToast('Downloaded ' + fn, 'success');
         }).catch(function (e) {
