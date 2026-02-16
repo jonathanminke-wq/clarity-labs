@@ -1144,29 +1144,39 @@
         if (!results) return '';
         var text = allSnippets(results);
 
-        // LinkedIn jobs pages show count like "89 results" or "89 jobs" or "showing 1-25 of 89"
+        // Only match counts explicitly tied to "remote" — never match generic job/result counts
         var patterns = [
             /(\d[\d,]*)\s*(?:\+\s*)?(?:remote|work from home|wfh)\s*(?:jobs?|positions?|roles?|openings?|results?)/i,
             /(\d[\d,]*)\s*(?:\+\s*)?(?:jobs?|positions?|roles?|openings?|results?)\s*(?:for\s+)?(?:remote|work from home)/i,
-            /(?:showing|found|displaying)\s*(?:\d+\s*[-–]\s*\d+\s*of\s*)?(\d[\d,]*)\s*(?:remote\s+)?(?:jobs?|results?|positions?)/i,
-            /(\d[\d,]*)\s*(?:\+\s*)?(?:open\s+)?(?:remote\s+)?(?:jobs?|positions?|roles?|openings?)/i,
-            /(\d[\d,]*)\s*results?/i
+            /(?:showing|found|displaying)\s*(?:\d+\s*[-–]\s*\d+\s*of\s*)?(\d[\d,]*)\s*remote\s*(?:jobs?|results?|positions?)/i
         ];
         for (var i = 0; i < patterns.length; i++) {
             var m = text.match(patterns[i]);
             if (m && m[1]) {
-                var count = m[1].replace(/,/g, '');
-                if (parseInt(count) > 0) return m[1] + ' remote roles';
+                var count = parseInt(m[1].replace(/,/g, ''));
+                // Sanity check: a single company won't have >50k remote roles
+                if (count > 0 && count < 50000) return m[1] + ' remote roles';
             }
         }
 
-        // Also check titles for job counts
+        // Check titles — must explicitly mention "remote"
         if (results.organic) {
             for (var j = 0; j < results.organic.length; j++) {
                 var title = results.organic[j].title || '';
-                var countMatch = title.match(/(\d[\d,]*)\s*(?:\+\s*)?(?:remote|wfh)?\s*(?:jobs?|positions?|openings?)/i);
-                if (countMatch) return countMatch[1] + ' remote roles';
+                var countMatch = title.match(/(\d[\d,]*)\s*(?:\+\s*)?(?:remote|wfh)\s*(?:jobs?|positions?|openings?)/i);
+                if (countMatch) {
+                    var tc = parseInt(countMatch[1].replace(/,/g, ''));
+                    if (tc > 0 && tc < 50000) return countMatch[1] + ' remote roles';
+                }
             }
+        }
+
+        // Last resort: count the number of actual remote job result links from LinkedIn
+        if (results.organic) {
+            var linkedinJobLinks = results.organic.filter(function(r) {
+                return /linkedin\.com\/jobs/i.test(r.link || '');
+            });
+            if (linkedinJobLinks.length >= 3) return linkedinJobLinks.length + '+ remote roles';
         }
         return '';
     }
@@ -1887,7 +1897,10 @@
                     if (!remoteJobCount) {
                         var remoteText2 = allSnippets(remoteResults2);
                         var rm2 = remoteText2.match(/(\d[\d,]*)\s*(?:\+\s*)?(?:remote|work from home)\s*(?:jobs?|positions?|roles?|openings?)/i);
-                        if (rm2) remoteJobCount = rm2[1] + ' remote roles';
+                        if (rm2) {
+                            var rc2 = parseInt(rm2[1].replace(/,/g, ''));
+                            if (rc2 > 0 && rc2 < 50000) remoteJobCount = rm2[1] + ' remote roles';
+                        }
                     }
                     addDebugResponse('Remote Jobs (broad)', remoteQuery2, remoteResults2, {
                         remote_jobs: remoteJobCount
@@ -1903,14 +1916,13 @@
             } else if (remoteJobCount) {
                 data.company.open_remote_jobs = remoteJobCount;
             }
-            // Fallback: try generic hiring snippets
+            // Fallback: try generic hiring snippets (must mention "remote" explicitly)
             if (!data.company.open_remote_jobs) {
                 var remoteText = allSnippets(hiringResults);
                 var remoteMatch = remoteText.match(/(\d+)\s*(?:\+\s*)?(?:remote|work from home|wfh)\s*(?:jobs?|positions?|roles?|openings?)/i);
-                if (remoteMatch) data.company.open_remote_jobs = remoteMatch[1] + ' remote roles';
-                if (!data.company.open_remote_jobs) {
-                    var jobMatch = remoteText.match(/(\d+)\s*(?:\+\s*)?(?:open\s+)?(?:jobs?|positions?|roles?|openings?)/i);
-                    if (jobMatch) data.company.open_remote_jobs = jobMatch[1] + ' open roles';
+                if (remoteMatch) {
+                    var rmc = parseInt(remoteMatch[1].replace(/,/g, ''));
+                    if (rmc > 0 && rmc < 50000) data.company.open_remote_jobs = remoteMatch[1] + ' remote roles';
                 }
             }
 
