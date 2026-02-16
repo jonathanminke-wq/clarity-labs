@@ -73,14 +73,7 @@
                 <div class="progress-list" id="progress-list">
                     <!-- Populated by JS -->
                 </div>
-                <button type="button" class="btn-debug-toggle" id="debug-toggle" style="display: none;">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg>
-                    Show raw API responses
-                </button>
-                <div class="debug-panel" id="debug-panel" style="display: none;">
-                    <div class="debug-panel-header">Raw API Responses</div>
-                    <div id="debug-content"></div>
-                </div>
+                <!-- debug panel moved to Research Log section below -->
             </div>
 
             <!-- Prospect Details (auto-populated, editable) -->
@@ -290,6 +283,17 @@
                         <img id="logo-preview-img" alt="Logo preview">
                         <button type="button" id="logo-remove-btn" class="btn-remove-logo">Remove</button>
                     </div>
+                </div>
+            </div>
+
+            <!-- Research Log (persistent per run) -->
+            <div class="form-section" id="research-log-section" style="display: none;">
+                <button type="button" class="form-section-toggle" data-section="research-log">
+                    <span class="form-section-label">Research Log</span>
+                    <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <div class="form-section-body" id="research-log">
+                    <div id="debug-content"></div>
                 </div>
             </div>
 

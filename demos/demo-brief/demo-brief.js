@@ -1266,12 +1266,18 @@
     }
 
     function renderDebugPanel() {
-        var toggle = document.getElementById('debug-toggle');
-        var panel = document.getElementById('debug-panel');
+        var section = document.getElementById('research-log-section');
         var content = document.getElementById('debug-content');
-        if (!toggle || !content) return;
+        if (!content) return;
 
-        toggle.style.display = '';
+        // Show the Research Log section and auto-open it
+        if (section) {
+            section.style.display = '';
+            var body = document.getElementById('research-log');
+            var toggle = section.querySelector('.form-section-toggle');
+            if (body) body.classList.add('open');
+            if (toggle) toggle.classList.add('open');
+        }
         content.innerHTML = '';
 
         // Show run summary header
@@ -1922,14 +1928,8 @@
             setProgress('incidents', 'error', e.message);
         }
 
-        // Render debug panel and auto-open it
+        // Render the Research Log section
         renderDebugPanel();
-        var debugPanel = document.getElementById('debug-panel');
-        var debugToggleEl = document.getElementById('debug-toggle');
-        if (debugPanel) debugPanel.style.display = '';
-        if (debugToggleEl) {
-            debugToggleEl.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Hide raw API responses';
-        }
 
         console.log('[DemoBrief] Research complete. Data:', data);
         return data;
@@ -2150,11 +2150,15 @@
             var isLinkedIn = /linkedin\.com\/in\//i.test(link) || /linkedin/i.test(title);
 
             if (isLinkedIn) {
-                // First: strip "| LinkedIn" from end if present
-                var cleanTitle = title.replace(/\s*\|\s*LinkedIn\s*$/i, '').trim();
+                // Strip "| LinkedIn" or "- LinkedIn" from end if present
+                var cleanTitle = title.replace(/\s*[|–—-]\s*LinkedIn\s*$/i, '').trim();
 
                 // Split by " - " (standard LinkedIn separator)
                 var parts = cleanTitle.split(/\s+[-–—]\s+/);
+                // Remove any trailing "LinkedIn" part that survived stripping
+                while (parts.length > 1 && /^linkedin$/i.test(parts[parts.length - 1].trim())) {
+                    parts.pop();
+                }
                 console.log('[DemoBrief] LinkedIn title parts:', parts);
 
                 // "Name - Title - Company" → company is last
@@ -2909,10 +2913,10 @@
             });
             renderDebugPanel();
         } else {
-            // No logs saved for this entry — hide debug panel
+            // No logs saved for this entry — hide Research Log section
             debugResponses = [];
-            var toggle = document.getElementById('debug-toggle');
-            if (toggle) toggle.style.display = 'none';
+            var logSection = document.getElementById('research-log-section');
+            if (logSection) logSection.style.display = 'none';
         }
 
         // Show New Brief button
@@ -2946,12 +2950,10 @@
         // Hide research progress
         researchProgress.style.display = 'none';
         window._lastBriefData = null;
-        // Clear debug logs and hide panel
+        // Clear research logs and hide section
         debugResponses = [];
-        var debugToggle = document.getElementById('debug-toggle');
-        var debugPanel = document.getElementById('debug-panel');
-        if (debugToggle) debugToggle.style.display = 'none';
-        if (debugPanel) debugPanel.classList.remove('open');
+        var logSection = document.getElementById('research-log-section');
+        if (logSection) logSection.style.display = 'none';
         // Re-render history
         renderHistory();
     }
@@ -2961,23 +2963,6 @@
 
     // Delegated click handler on history section
     document.getElementById('history-section').addEventListener('click', handleHistoryClick);
-
-    // ══════════════════════════════════════════
-    // Debug toggle
-    // ══════════════════════════════════════════
-    var debugToggleBtn = document.getElementById('debug-toggle');
-    if (debugToggleBtn) {
-        debugToggleBtn.addEventListener('click', function () {
-            var panel = document.getElementById('debug-panel');
-            if (panel.style.display === 'none') {
-                panel.style.display = '';
-                this.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Hide raw API responses';
-            } else {
-                panel.style.display = 'none';
-                this.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4z"/></svg> Show raw API responses';
-            }
-        });
-    }
 
     // ══════════════════════════════════════════
     // Init
