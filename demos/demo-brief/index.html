@@ -6,7 +6,7 @@
     <title>Demo Brief Generator | Clarity Labs</title>
     <link rel="icon" type="image/svg+xml" href="../../favicon.svg">
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="demo-brief.css?v=7">
+    <link rel="stylesheet" href="demo-brief.css?v=8">
 </head>
 <body>
 
@@ -23,49 +23,64 @@
 </nav>
 
 <!-- Main Content -->
-<div class="container">
+<div class="app-layout">
 
-    <!-- Left Panel: Form -->
-    <div class="panel panel-form">
-        <div class="panel-header">
-            <h2>New Brief</h2>
-            <button type="button" class="btn-new-brief" id="new-brief-btn" style="display: none;">
+    <!-- Left Sidebar: History -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <button type="button" class="sidebar-new-btn" id="new-brief-btn">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                 New Brief
             </button>
-            <p>Paste a LinkedIn URL to auto-research the prospect and generate a professional brief.</p>
         </div>
+        <div class="sidebar-list" id="sidebar-history-list"></div>
+    </aside>
+
+    <div class="container">
+
+    <!-- Left Panel: Form -->
+    <div class="panel panel-form">
 
         <form id="brief-form" autocomplete="off">
-            <!-- Primary Input -->
-            <div class="form-section">
-                <div class="form-section-label">Start Here</div>
-
-                <div class="form-group">
-                    <label for="linkedin-url">LinkedIn URL</label>
-                    <div class="input-with-icon">
-                        <svg class="input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-4 0v7h-4v-7a6 6 0 016-6z"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/></svg>
-                        <input type="url" id="linkedin-url" placeholder="https://linkedin.com/in/prospect-name" required>
-                    </div>
-                    <div class="input-hint" id="linkedin-hint"></div>
+            <!-- Fixed: Inputs (always visible, no scroll) -->
+            <div class="panel-form-fixed">
+                <div class="panel-header">
+                    <h2>New Brief</h2>
+                    <p>Paste a LinkedIn URL to auto-research the prospect and generate a professional brief.</p>
                 </div>
 
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="company-name">Company Name <span class="hint">auto-detected from LinkedIn</span></label>
-                        <input type="text" id="company-name" placeholder="Auto-detected from LinkedIn URL">
-                    </div>
-                    <div class="form-group">
-                        <label for="sdr-name">SDR Name</label>
-                        <input type="text" id="sdr-name" placeholder="e.g. Yoni" required>
-                    </div>
-                </div>
+                <div class="form-section">
+                    <div class="form-section-label">Start Here</div>
 
-                <button type="button" class="btn-research" id="research-btn">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                    Research &amp; Generate
-                </button>
+                    <div class="form-group">
+                        <label for="linkedin-url">LinkedIn URL</label>
+                        <div class="input-with-icon">
+                            <svg class="input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-4 0v7h-4v-7a6 6 0 016-6z"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/></svg>
+                            <input type="url" id="linkedin-url" placeholder="https://linkedin.com/in/prospect-name" required>
+                        </div>
+                        <div class="input-hint" id="linkedin-hint"></div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="company-name">Company Name <span class="hint">auto-detected from LinkedIn</span></label>
+                            <input type="text" id="company-name" placeholder="Auto-detected from LinkedIn URL">
+                        </div>
+                        <div class="form-group">
+                            <label for="sdr-name">SDR Name</label>
+                            <input type="text" id="sdr-name" placeholder="e.g. Yoni" required>
+                        </div>
+                    </div>
+
+                    <button type="button" class="btn-research" id="research-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        Research &amp; Generate
+                    </button>
+                </div>
             </div>
+
+            <!-- Scrollable: Research results & editable fields -->
+            <div class="panel-form-scroll">
 
             <!-- Research Progress -->
             <div class="research-progress" id="research-progress" style="display: none;">
@@ -318,25 +333,30 @@
                     Generate Brief
                 </button>
             </div>
+
+            </div><!-- /.panel-form-scroll -->
         </form>
     </div>
 
     <!-- Right Panel: Preview -->
     <div class="panel panel-preview">
-        <div class="panel-header">
-            <h2>Preview</h2>
-            <div class="preview-actions" id="preview-actions" style="display: none;">
-                <button type="button" class="btn-icon" id="download-docx-btn" title="Download .docx">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    .docx
-                </button>
+        <!-- Fixed: Preview header -->
+        <div class="panel-preview-fixed">
+            <div class="panel-header">
+                <h2>Preview</h2>
+                <div class="preview-actions" id="preview-actions" style="display: none;">
+                    <button type="button" class="btn-icon" id="download-docx-btn" title="Download .docx">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        .docx
+                    </button>
+                </div>
             </div>
         </div>
 
-        <!-- Empty State / History -->
-        <div class="preview-empty" id="preview-empty">
-            <div id="history-section" style="display: none;"></div>
-            <div id="empty-fallback" class="empty-fallback">
+        <!-- Scrollable: Preview content -->
+        <div class="panel-preview-scroll">
+            <!-- Empty State -->
+            <div class="preview-empty" id="preview-empty">
                 <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="1.5">
                     <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
                     <polyline points="14 2 14 8 20 8"/>
@@ -346,21 +366,22 @@
                 </svg>
                 <p>Paste a LinkedIn URL and click <strong>Research &amp; Generate</strong> to get started.</p>
             </div>
-        </div>
 
-        <!-- Document Preview -->
-        <div class="preview-doc" id="preview-doc" style="display: none;">
-            <div class="doc-page" id="doc-page"></div>
-        </div>
+            <!-- Document Preview -->
+            <div class="preview-doc" id="preview-doc" style="display: none;">
+                <div class="doc-page" id="doc-page"></div>
+            </div>
 
-        <!-- Researching State -->
-        <div class="preview-loading" id="preview-loading" style="display: none;">
-            <div class="spinner"></div>
-            <p id="preview-loading-text">Researching prospect...</p>
+            <!-- Researching State -->
+            <div class="preview-loading" id="preview-loading" style="display: none;">
+                <div class="spinner"></div>
+                <p id="preview-loading-text">Researching prospect...</p>
+            </div>
         </div>
     </div>
 
-</div>
+</div><!-- /.container -->
+</div><!-- /.app-layout -->
 
 <!-- Settings Modal -->
 <div class="modal-overlay" id="settings-modal" style="display: none;">
@@ -393,6 +414,6 @@
 </div>
 
 <script src="https://unpkg.com/docx@9.5.0/build/index.umd.js"></script>
-<script src="demo-brief.js?v=7"></script>
+<script src="demo-brief.js?v=8"></script>
 </body>
 </html>

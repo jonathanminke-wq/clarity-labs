@@ -1387,11 +1387,12 @@
         var netrowsCompanyData = null;
 
         // ── Netrows-first: get LinkedIn profile directly ──
+        console.log('[DemoBrief] Netrows API key available:', !!netrowsKey, netrowsKey ? '(' + netrowsKey.substring(0, 8) + '...)' : '(none)');
         if (netrowsKey) {
             try {
                 console.log('[DemoBrief] Using Netrows API for LinkedIn data');
                 netrowsProfile = await netrowsProfileLookup(parsed.url);
-                addDebugResponse('Netrows Profile', parsed.url, netrowsProfile, {});
+                addDebugResponse('Netrows Profile', parsed.url, netrowsProfile, {}, 'netrows');
 
                 if (netrowsProfile) {
                     var profileData = parseNetrowsProfile(netrowsProfile, companyName);
@@ -1403,8 +1404,11 @@
                 }
             } catch (e) {
                 console.error('[DemoBrief] Netrows profile lookup error:', e);
-                addDebugResponse('Netrows Profile (error)', parsed.url, { error: e.message }, {});
+                addDebugResponse('Netrows Profile (error)', parsed.url, { error: e.message }, {}, 'netrows');
             }
+        } else {
+            console.warn('[DemoBrief] Netrows API key NOT configured — skipping LinkedIn data lookup');
+            addDebugResponse('Netrows Profile (skipped)', 'No API key configured', { skipped: true }, {}, 'netrows');
         }
 
         // Fallback: Serper-based company detection
@@ -1423,7 +1427,15 @@
                 console.error('[DemoBrief] Company auto-detect error:', e);
             }
             if (!companyName) {
-                throw new Error('Could not detect company from LinkedIn — try a different prospect URL');
+                // Don't hard-fail — let the user provide the company name
+                setProgress('parse', 'error', 'Could not detect company');
+                renderDebugPanel();
+                // Populate prospect name so it's not lost
+                document.getElementById('prospect-name').value = name;
+                document.getElementById('company-name').value = '';
+                document.getElementById('company-name').placeholder = 'Type company name here';
+                document.getElementById('company-name').focus();
+                return { _needsCompany: true, prospect: { name: name, linkedin_url: parsed.url } };
             }
             console.log('[DemoBrief] Auto-detected company:', companyName);
         }
@@ -1489,7 +1501,10 @@
         }
 
         // ── Serper fallback/enrichment for prospect ──
-        if (!netrowsProfile || !data.prospect.title) {
+        // Run if Netrows didn't provide data, or if key fields are still missing
+        var needsSerperEnrichment = !netrowsProfile || !data.prospect.title ||
+            !data.prospect.work_history.length || !data.prospect.location;
+        if (needsSerperEnrichment) {
             var prospectQuery = 'site:linkedin.com/in "' + name + '" ' + companyName;
             try {
                 var prospectResults = await serperSearch(prospectQuery, apiKey);
@@ -1616,16 +1631,29 @@
                     if (cd.name) data.company.name = cd.name;
                 }
 
-                // Netrows remote job search
+                // Netrows job search — get total open roles and remote roles
                 try {
-                    var jobResults = await netrowsJobSearch(companyName, { onsiteRemote: 'remote' });
-                    addDebugResponse('Remote Jobs (Netrows)', companyName + ' remote', jobResults, {});
-                    if (jobResults && jobResults.data && Array.isArray(jobResults.data)) {
-                        var jobCount = jobResults.data.length;
-                        if (jobResults.total) jobCount = jobResults.total;
-                        if (jobCount > 0) data.company.open_remote_jobs = jobCount + ' remote roles';
-                    } else if (jobResults && jobResults.total) {
-                        data.company.open_remote_jobs = jobResults.total + ' remote roles';
+                    // First: get ALL open roles at this company
+                    var allJobResults = await netrowsJobSearch(companyName, {});
+                    addDebugResponse('All Jobs (Netrows)', companyName, allJobResults, {});
+                    var totalJobs = 0;
+                    if (allJobResults && allJobResults.total) totalJobs = allJobResults.total;
+                    else if (allJobResults && allJobResults.data && Array.isArray(allJobResults.data)) totalJobs = allJobResults.data.length;
+
+                    // Then: get remote-only roles
+                    var remoteJobResults = await netrowsJobSearch(companyName, { onsiteRemote: 'remote' });
+                    addDebugResponse('Remote Jobs (Netrows)', companyName + ' remote', remoteJobResults, {});
+                    var remoteJobs = 0;
+                    if (remoteJobResults && remoteJobResults.total) remoteJobs = remoteJobResults.total;
+                    else if (remoteJobResults && remoteJobResults.data && Array.isArray(remoteJobResults.data)) remoteJobs = remoteJobResults.data.length;
+
+                    // Show both counts if available
+                    if (totalJobs > 0 && remoteJobs > 0) {
+                        data.company.open_remote_jobs = totalJobs + ' open roles (' + remoteJobs + ' remote)';
+                    } else if (totalJobs > 0) {
+                        data.company.open_remote_jobs = totalJobs + ' open roles';
+                    } else if (remoteJobs > 0) {
+                        data.company.open_remote_jobs = remoteJobs + ' remote roles';
                     }
                 } catch (je) {
                     console.error('[DemoBrief] Netrows job search error:', je);
@@ -1633,8 +1661,10 @@
 
             } catch (e) {
                 console.error('[DemoBrief] Netrows company lookup error:', e);
-                addDebugResponse('Company (Netrows error)', companyName, { error: e.message }, {});
+                addDebugResponse('Company (Netrows error)', companyName, { error: e.message }, {}, 'netrows');
             }
+        } else if (!netrowsKey) {
+            addDebugResponse('Company (Netrows skipped)', 'No API key configured', { skipped: true }, {}, 'netrows');
         }
 
         // ── Serper enrichment for company (fill gaps) ──
@@ -2123,7 +2153,7 @@
                 console.log('[DemoBrief] Auto-detected company:', company);
             } else {
                 companyInput.placeholder = 'Could not detect — type company name';
-                linkedInHint.textContent = 'Detected: ' + name + ' — company will be detected during research';
+                linkedInHint.textContent = 'Detected: ' + name + ' — please enter company name';
                 linkedInHint.className = 'input-hint';
                 console.log('[DemoBrief] Could not auto-detect company');
             }
@@ -2166,21 +2196,23 @@
                     var company = parts[parts.length - 1].trim();
                     if (company.length > 1 && company.length < 60) return company;
                 }
-                // "Name - Company" or "Name - Title at Company"
+                // "Name - Title at Company" → extract company from "at" pattern
+                // With only 2 parts, the second is almost always the job title, NOT
+                // the company. LinkedIn format is "Name - Title - Company", so the
+                // company only appears reliably as the 3rd part.
                 if (parts.length === 2) {
                     var second = parts[1].trim();
-                    // Check for "Title at Company" or "Title chez Company"
                     var atMatch = second.match(/\b(?:at|chez|@|à)\s+(.+)$/i);
                     if (atMatch && atMatch[1].length > 1) return atMatch[1].trim();
-                    // Otherwise it's likely the company name
-                    if (second.length > 1 && second.length < 60) return second;
                 }
             }
 
-            // Try snippet for "Title at Company" pattern (works for any result)
+            // Try snippet for company patterns (works for any result)
             var atPatterns = [
                 /(?:^|\.\s+|\,\s+)(?:[A-Za-z\s&]+)\s+(?:at|chez|@|à)\s+([A-ZÀ-ÿ][a-zA-ZÀ-ÿ\s&.]+?)(?:\s*[·|•]|\s*\.\s|\s*,\s|$)/,
-                /(?:works?\s+(?:at|for)|employed\s+(?:at|by)|currently\s+at)\s+([A-ZÀ-ÿ][a-zA-ZÀ-ÿ\s&.]+?)(?:\s*[·|•]|\s*\.\s|\s*,\s|$)/i
+                /(?:works?\s+(?:at|for)|employed\s+(?:at|by)|currently\s+at)\s+([A-ZÀ-ÿ][a-zA-ZÀ-ÿ\s&.]+?)(?:\s*[·|•]|\s*\.\s|\s*,\s|$)/i,
+                // "Company · Title" or "Company · Location" (LinkedIn snippet format)
+                /^([A-ZÀ-ÿ][a-zA-ZÀ-ÿ\s&.,]+?)\s*[·|•]\s/
             ];
             for (var p = 0; p < atPatterns.length; p++) {
                 var atCompany = snippet.match(atPatterns[p]);
@@ -2230,6 +2262,17 @@
 
         try {
             var data = await runResearch(url, company, apiKey);
+
+            // If company couldn't be detected, stop and ask user to provide it
+            if (data._needsCompany) {
+                previewLoading.style.display = 'none';
+                previewEmpty.style.display = '';
+                showToast('Enter the company name and click Research again', 'error');
+                researchBtn.disabled = false;
+                researchBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Research &amp; Generate';
+                return;
+            }
+
             // Update company field if it was auto-detected
             if (!company && data.company.name) {
                 document.getElementById('company-name').value = data.company.name;
@@ -2829,27 +2872,21 @@
     // Brief History UI
     // ══════════════════════════════════════════
     var newBriefBtn = document.getElementById('new-brief-btn');
+    var activeBriefId = null;
 
     function renderHistory() {
-        var section = document.getElementById('history-section');
-        var fallback = document.getElementById('empty-fallback');
-        var container = document.getElementById('preview-empty');
+        var list = document.getElementById('sidebar-history-list');
         var entries = BriefHistoryStore.getAll();
 
         if (entries.length === 0) {
-            section.style.display = 'none';
-            fallback.style.display = '';
-            container.classList.remove('has-history');
+            list.innerHTML = '<div class="sidebar-empty">No briefs yet.<br>Generate one to get started.</div>';
             return;
         }
 
-        fallback.style.display = 'none';
-        section.style.display = '';
-        container.classList.add('has-history');
-
-        var html = '<div class="history-header"><span class="history-title">Recent Briefs</span><span class="history-count">' + entries.length + '</span></div>';
+        var html = '';
         entries.forEach(function (entry) {
-            html += '<div class="history-card" data-id="' + escHtml(entry.id) + '">' +
+            var isActive = activeBriefId && entry.id === activeBriefId;
+            html += '<div class="history-card' + (isActive ? ' active' : '') + '" data-id="' + escHtml(entry.id) + '">' +
                 '<div class="history-card-body">' +
                 '<div class="history-card-name">' + escHtml(entry.prospect_name || 'Untitled') + '</div>' +
                 '<div class="history-card-company">' + escHtml(entry.company_name || 'Unknown company') + '</div>' +
@@ -2860,7 +2897,8 @@
                 '</button></div>';
         });
 
-        section.innerHTML = html;
+        list.innerHTML = html;
+        list.scrollTop = 0;
     }
 
     function handleHistoryClick(e) {
@@ -2869,6 +2907,9 @@
         if (deleteBtn) {
             e.stopPropagation();
             var id = deleteBtn.getAttribute('data-delete-id');
+            if (id === activeBriefId) {
+                activeBriefId = null;
+            }
             BriefHistoryStore.remove(id);
             renderHistory();
             showToast('Brief removed', 'success');
@@ -2885,6 +2926,8 @@
     function loadBriefFromHistory(id) {
         var entry = BriefHistoryStore.getById(id);
         if (!entry || !entry.data) return;
+
+        activeBriefId = id;
 
         populateFormFromData(entry.data);
 
@@ -2919,17 +2962,15 @@
             if (logSection) logSection.style.display = 'none';
         }
 
-        // Show New Brief button
-        newBriefBtn.style.display = '';
-
+        renderHistory();
         showToast('Loaded brief for ' + (entry.prospect_name || 'prospect'), 'success');
     }
 
     function saveBriefToHistory(data) {
         var entry = createHistoryEntry(data, debugResponses);
         BriefHistoryStore.save(entry);
+        activeBriefId = entry.id;
         renderHistory();
-        newBriefBtn.style.display = '';
     }
 
     function resetForNewBrief() {
@@ -2939,7 +2980,7 @@
         document.getElementById('published-content-list').innerHTML = '';
         document.getElementById('identity-tools-list').innerHTML = '';
         document.getElementById('incidents-list').innerHTML = '';
-        // Hide preview, show empty/history
+        // Hide preview, show empty state
         previewDoc.style.display = 'none';
         previewActions.style.display = 'none';
         previewLoading.style.display = 'none';
@@ -2954,15 +2995,16 @@
         debugResponses = [];
         var logSection = document.getElementById('research-log-section');
         if (logSection) logSection.style.display = 'none';
-        // Re-render history
+        // Clear active brief and re-render sidebar
+        activeBriefId = null;
         renderHistory();
     }
 
     // New Brief button
     newBriefBtn.addEventListener('click', resetForNewBrief);
 
-    // Delegated click handler on history section
-    document.getElementById('history-section').addEventListener('click', handleHistoryClick);
+    // Delegated click handler on sidebar history list
+    document.getElementById('sidebar-history-list').addEventListener('click', handleHistoryClick);
 
     // ══════════════════════════════════════════
     // Init
