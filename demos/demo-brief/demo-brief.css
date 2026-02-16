@@ -671,6 +671,18 @@ body {
     transform: translateY(-1px);
 }
 
+.btn-icon-secondary {
+    background: white;
+    color: var(--text-secondary);
+    border: 1.5px solid var(--border);
+}
+
+.btn-icon-secondary:hover {
+    background: #f8fafc;
+    border-color: var(--text-muted);
+    color: var(--navy);
+}
+
 /* ── Logo Upload ── */
 .logo-upload {
     border: 2px dashed var(--border);

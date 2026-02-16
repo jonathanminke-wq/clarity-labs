@@ -10,6 +10,7 @@
     var HISTORY_STORAGE_KEY = 'clarity_demo_brief_history';
     var HISTORY_MAX = 50;
     var SERPER_URL = 'https://google.serper.dev/search';
+    var DEFAULT_NETROWS_KEY = 'pk_live_54c2fa32e537b6c871af0f914ff4cd8f';
 
     // ══════════════════════════════════════════
     // Settings (localStorage)
@@ -19,7 +20,7 @@
     }
     function saveSettings(s) { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); }
     function getApiKey() { return (loadSettings().serperApiKey || '').trim(); }
-    function getNetrowsApiKey() { return (loadSettings().netrowsApiKey || '').trim(); }
+    function getNetrowsApiKey() { return (loadSettings().netrowsApiKey || DEFAULT_NETROWS_KEY).trim(); }
 
     // ══════════════════════════════════════════
     // Brief History Store (localStorage)
@@ -168,14 +169,9 @@
         return callNetrowsAPI('/companies/details', { url: companyUrl });
     }
 
-    // Search jobs via Netrows (for remote job counts)
-    function netrowsJobSearch(keywords, opts) {
-        var params = { keywords: keywords, start: 0 };
-        if (opts) {
-            if (opts.onsiteRemote) params.onsiteRemote = opts.onsiteRemote;
-            if (opts.locationId) params.locationId = opts.locationId;
-        }
-        return callNetrowsAPI('/jobs/search', params);
+    // Get company insights (headcount, hiring, job openings) via Netrows
+    function netrowsCompanyInsights(companyUrl) {
+        return callNetrowsAPI('/companies/insights', { url: companyUrl });
     }
 
     // Parse Netrows profile response into our data model
@@ -1631,32 +1627,64 @@
                     if (cd.name) data.company.name = cd.name;
                 }
 
-                // Netrows job search — get total open roles and remote roles
-                try {
-                    // First: get ALL open roles at this company
-                    var allJobResults = await netrowsJobSearch(companyName, {});
-                    addDebugResponse('All Jobs (Netrows)', companyName, allJobResults, {});
-                    var totalJobs = 0;
-                    if (allJobResults && allJobResults.total) totalJobs = allJobResults.total;
-                    else if (allJobResults && allJobResults.data && Array.isArray(allJobResults.data)) totalJobs = allJobResults.data.length;
+                // Netrows company insights — job openings, hiring trends, headcount
+                if (companyLinkedInUrl) {
+                    try {
+                        var insightsData = await netrowsCompanyInsights(companyLinkedInUrl);
+                        addDebugResponse('Company Insights (Netrows)', companyLinkedInUrl, insightsData, {}, 'netrows');
+                        var insights = (insightsData && insightsData.data && insightsData.data.insights) || {};
 
-                    // Then: get remote-only roles
-                    var remoteJobResults = await netrowsJobSearch(companyName, { onsiteRemote: 'remote' });
-                    addDebugResponse('Remote Jobs (Netrows)', companyName + ' remote', remoteJobResults, {});
-                    var remoteJobs = 0;
-                    if (remoteJobResults && remoteJobResults.total) remoteJobs = remoteJobResults.total;
-                    else if (remoteJobResults && remoteJobResults.data && Array.isArray(remoteJobResults.data)) remoteJobs = remoteJobResults.data.length;
+                        // Job openings from LinkedIn company page
+                        if (insights.jobOpeningsInsights) {
+                            var jobData = insights.jobOpeningsInsights;
+                            // Get the most recent total from jobOpeningsByFunction
+                            if (jobData.jobOpeningsByFunction && jobData.jobOpeningsByFunction.length > 0) {
+                                // Sort by date descending to get the latest
+                                var sorted = jobData.jobOpeningsByFunction.slice().sort(function (a, b) {
+                                    var aDate = a.yearMonthOn || {};
+                                    var bDate = b.yearMonthOn || {};
+                                    return (bDate.year || 0) * 100 + (bDate.month || 0) - (aDate.year || 0) * 100 - (aDate.month || 0);
+                                });
+                                var latestJobCount = sorted[0].totalCount;
+                                if (latestJobCount > 0) {
+                                    data.company.open_remote_jobs = latestJobCount + ' open positions';
+                                }
+                            }
+                            // Add growth trend if available
+                            if (jobData.jobOpeningsGrowthAllFunctions && jobData.jobOpeningsGrowthAllFunctions.length > 0) {
+                                var trend = jobData.jobOpeningsGrowthAllFunctions[0];
+                                if (trend.changePercentageStr && data.company.open_remote_jobs) {
+                                    data.company.open_remote_jobs += ' (' + trend.changePercentageStr + ' ' + trend.monthDifferenceStr + ')';
+                                }
+                            }
+                        }
 
-                    // Show both counts if available
-                    if (totalJobs > 0 && remoteJobs > 0) {
-                        data.company.open_remote_jobs = totalJobs + ' open roles (' + remoteJobs + ' remote)';
-                    } else if (totalJobs > 0) {
-                        data.company.open_remote_jobs = totalJobs + ' open roles';
-                    } else if (remoteJobs > 0) {
-                        data.company.open_remote_jobs = remoteJobs + ' remote roles';
+                        // Hiring trends
+                        if (insights.hiresInsights && insights.hiresInsights.totalHires) {
+                            data.company.hiring_activity = insights.hiresInsights.totalHires + ' recent hires';
+                        }
+
+                        // Headcount (more reliable than company details)
+                        if (insights.headcountInsights) {
+                            var hc = insights.headcountInsights;
+                            if (hc.totalEmployees) {
+                                data.company.employee_count = String(hc.totalEmployees);
+                                data.company.size = String(hc.totalEmployees) + ' employees';
+                            }
+                            // Headcount growth
+                            if (hc.growthPeriods && hc.growthPeriods.length > 0) {
+                                var g = hc.growthPeriods[0];
+                                if (g.changePercentageStr) {
+                                    data.company.growth = g.changePercentageStr + ' (' + g.monthDifferenceStr + ')';
+                                }
+                            }
+                        }
+
+                        console.log('[DemoBrief] Company insights from Netrows:', insights);
+                    } catch (ie) {
+                        console.error('[DemoBrief] Netrows insights error:', ie);
+                        addDebugResponse('Company Insights (Netrows error)', companyLinkedInUrl, { error: ie.message }, {}, 'netrows');
                     }
-                } catch (je) {
-                    console.error('[DemoBrief] Netrows job search error:', je);
                 }
 
             } catch (e) {
@@ -2246,7 +2274,13 @@
         if (!apiKey && !netrowsAvailable) {
             settingsModal.style.display = '';
             netrowsKeyInput.focus();
-            showToast('Add your Netrows or Serper API key to enable research', 'error');
+            showToast('Add your Netrows API key to enable LinkedIn research', 'error');
+            return;
+        }
+        if (!netrowsAvailable) {
+            settingsModal.style.display = '';
+            netrowsKeyInput.focus();
+            showToast('Add your Netrows API key for LinkedIn data (primary source)', 'error');
             return;
         }
 
@@ -2837,7 +2871,15 @@
         return new D.Document({ sections: [{ properties: { page: { margin: { top: 720, bottom: 720, left: 1080, right: 1080 } } }, children: [headerTable, divider, infoTable, new D.Paragraph({ spacing: { after: 200 }, children: [] })].concat(content) }] });
     }
 
-    // Download .docx
+    // ══════════════════════════════════════════
+    // Export: Download .docx
+    // ══════════════════════════════════════════
+    function getBriefFilename(data, ext) {
+        var prospect = (data.prospect.name || 'Prospect').replace(/\s+/g, '_');
+        var company = (data.company.name || 'Company').replace(/\s+/g, '_');
+        return prospect + '_-_' + company + '_-_Demo_Brief.' + ext;
+    }
+
     document.getElementById('download-docx-btn').addEventListener('click', function () {
         var data = window._lastBriefData;
         if (!data) { showToast('Generate a brief first', 'error'); return; }
@@ -2845,7 +2887,7 @@
         if (!D) { showToast('docx library not loaded', 'error'); return; }
         var doc = generateDocx(data);
         D.Packer.toBlob(doc).then(function (blob) {
-            var fn = data.prospect.name.replace(/\s+/g, '_') + '_-_' + data.company.name.replace(/\s+/g, '_') + '_-_Demo_Brief.docx';
+            var fn = getBriefFilename(data, 'docx');
             var a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
             a.download = fn;
@@ -2853,6 +2895,40 @@
             URL.revokeObjectURL(a.href);
             showToast('Downloaded ' + fn, 'success');
         }).catch(function (e) { showToast('DOCX error: ' + e.message, 'error'); });
+    });
+
+    // ══════════════════════════════════════════
+    // Export: Download PDF
+    // ══════════════════════════════════════════
+    document.getElementById('download-pdf-btn').addEventListener('click', function () {
+        var data = window._lastBriefData;
+        if (!data) { showToast('Generate a brief first', 'error'); return; }
+        if (!window.html2pdf) { showToast('PDF library not loaded', 'error'); return; }
+
+        var docPage = document.getElementById('doc-page');
+        if (!docPage) { showToast('No preview to export', 'error'); return; }
+
+        var btn = this;
+        btn.disabled = true;
+        btn.textContent = 'Exporting...';
+
+        var fn = getBriefFilename(data, 'pdf');
+
+        html2pdf().set({
+            margin: [10, 10, 10, 10],
+            filename: fn,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true, logging: false },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+            pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+        }).from(docPage).save().then(function () {
+            showToast('Downloaded ' + fn, 'success');
+        }).catch(function (e) {
+            showToast('PDF error: ' + e.message, 'error');
+        }).finally(function () {
+            btn.disabled = false;
+            btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> PDF';
+        });
     });
 
     // ══════════════════════════════════════════
