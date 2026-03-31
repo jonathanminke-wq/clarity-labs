@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Hiring Fraud Protection — Clarity</title>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --navy:     #0a1628;
+      --green:    #61F393;
+      --danger:   #EF4444;
+      --light-bg: #F0F4F8;
+      --white:    #FFFFFF;
+      --muted:    rgba(10,22,40,0.45);
+      --border:   rgba(10,22,40,0.09);
+    }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: var(--white);
+      font-family: 'Manrope', sans-serif;
+      color: var(--navy);
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    /* ── PAGE SHELL ── */
+    .page {
+      width: 960px;
+      min-height: 540px;
+      margin: 0 auto;
+      background: var(--white);
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── HEADER ── */
+    .header {
+      background: var(--navy);
+      padding: 36px 52px 32px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .header-left { display: flex; flex-direction: column; gap: 14px; }
+
+    .logo-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .logo-row svg { width: 28px; height: 28px; color: var(--green); flex-shrink: 0; }
+    .logo-row span { font-size: 1rem; font-weight: 700; color: var(--white); letter-spacing: -0.2px; }
+
+    .header h1 {
+      font-size: 1.9rem;
+      font-weight: 700;
+      color: var(--white);
+      line-height: 1.15;
+      letter-spacing: -0.5px;
+      max-width: 420px;
+    }
+
+    .header h1 em {
+      font-style: normal;
+      color: var(--green);
+    }
+
+    .header-right {
+      padding-top: 6px;
+      max-width: 280px;
+    }
+
+    .header-right p {
+      font-size: 0.82rem;
+      font-weight: 400;
+      color: rgba(255,255,255,0.6);
+      line-height: 1.6;
+    }
+
+    /* ── BODY ── */
+    .body {
+      flex: 1;
+      padding: 36px 52px 44px;
+      background: var(--white);
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+
+    /* ── TABLE ── */
+    .table-wrap { overflow: hidden; border-radius: 12px; border: 1px solid var(--border); }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.83rem;
+    }
+
+    /* Column header row */
+    thead tr th {
+      padding: 14px 20px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      color: var(--muted);
+      background: var(--light-bg);
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      vertical-align: bottom;
+    }
+
+    thead tr th:not(:first-child) { text-align: center; }
+
+    /* Clarity column highlight */
+    thead tr th.clarity-col {
+      background: var(--navy);
+      color: var(--green);
+      border-bottom-color: var(--navy);
+    }
+
+    /* Body rows */
+    tbody tr td {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+      background: var(--white);
+    }
+
+    tbody tr:last-child td { border-bottom: none; }
+
+    tbody tr td:first-child {
+      font-weight: 600;
+      font-size: 0.85rem;
+      color: var(--navy);
+    }
+
+    tbody tr td:not(:first-child) {
+      text-align: center;
+    }
+
+    /* Clarity column cells */
+    tbody tr td.clarity-col {
+      background: rgba(97,243,147,0.07);
+    }
+
+    /* Hover row tint */
+    tbody tr:hover td { background: var(--light-bg); }
+    tbody tr:hover td.clarity-col { background: rgba(97,243,147,0.12); }
+
+    /* ── ICONS ── */
+    .icon-check, .icon-cross {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px; height: 26px;
+      border-radius: 50%;
+      font-size: 0.75rem;
+      font-weight: 700;
+    }
+
+    .icon-check { background: rgba(97,243,147,0.15); color: #16a34a; }
+    .icon-cross  { background: rgba(239,68,68,0.1);   color: var(--danger); }
+
+    /* ── COVERAGE FOOTER ROW ── */
+    .coverage-row td {
+      padding: 16px 20px !important;
+      background: var(--light-bg) !important;
+      border-top: 2px solid var(--border) !important;
+      border-bottom: none !important;
+    }
+
+    .coverage-row td.clarity-col {
+      background: var(--navy) !important;
+    }
+
+    .coverage-label {
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      color: var(--muted);
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .coverage-bar-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .coverage-bar-track {
+      flex: 1;
+      height: 6px;
+      border-radius: 99px;
+      background: var(--border);
+      overflow: hidden;
+    }
+
+    .coverage-bar-fill {
+      height: 100%;
+      border-radius: 99px;
+      background: rgba(10,22,40,0.25);
+    }
+
+    .clarity-col .coverage-bar-fill { background: var(--green); }
+
+    .coverage-num {
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .clarity-col .coverage-num { color: var(--green); }
+
+    /* ── STAT STRIP ── */
+    .stat-strip {
+      display: flex;
+      gap: 12px;
+    }
+
+    .stat-card {
+      flex: 1;
+      background: var(--light-bg);
+      border-radius: 10px;
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .stat-card.accent {
+      background: var(--navy);
+    }
+
+    .stat-num {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: var(--navy);
+      line-height: 1;
+    }
+
+    .stat-card.accent .stat-num { color: var(--green); }
+
+    .stat-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--muted);
+    }
+
+    .stat-card.accent .stat-label { color: rgba(255,255,255,0.5); }
+
+    /* ── FOOTER ── */
+    .footer {
+      border-top: 1px solid var(--border);
+      padding: 16px 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .footer-logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .footer-logo svg { width: 18px; height: 18px; color: var(--navy); }
+    .footer-logo span { font-size: 0.8rem; font-weight: 700; color: var(--navy); }
+
+    .footer p {
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+
+    @media print {
+      .page { width: 100%; }
+      body { background: white; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-left">
+      <div class="logo-row">
+        <svg viewBox="0 0 56 56" fill="none"><path d="M39.48 16.28L32.35 0L27.81 10.48L33.1 22.71L45.23 28.05L55.63 23.47L39.48 16.28Z" fill="currentColor"/><path d="M39.48 39.81L55.62 32.62L45.24 28.05L33.11 33.38L27.81 45.62L32.35 56.1L39.48 39.81Z" fill="currentColor"/><path d="M16.15 39.82L23.28 56.1L27.82 45.62L22.53 33.39L10.4 28.05L0 32.62L16.15 39.82Z" fill="currentColor"/><path d="M16.15 16.28L0 23.48L10.39 28.05L22.52 22.71L27.81 10.48L23.28 0L16.15 16.28Z" fill="currentColor"/></svg>
+        <span>Clarity</span>
+      </div>
+      <h1>Only Clarity covers <em>every</em> risk.</h1>
+    </div>
+    <div class="header-right">
+      <p>Most vendors solve one piece of the puzzle. Clarity is the only platform that protects against the full spectrum of hiring fraud — from fake CVs to workforce infiltration.</p>
+    </div>
+  </div>
+
+  <!-- BODY -->
+  <div class="body">
+
+    <!-- COMPARISON TABLE -->
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:30%">Risk</th>
+            <th style="width:14%">CV Fraud Filters<br/><span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:0.72rem;">Tofu / Brainer</span></th>
+            <th style="width:14%">ATS Tools<br/><span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:0.72rem;">Greenhouse / Ashby</span></th>
+            <th style="width:14%">IDV Platforms<br/><span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:0.72rem;">Persona / Clear</span></th>
+            <th style="width:14%" class="clarity-col">Clarity</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Fake CVs</td>
+            <td><span class="icon-check">✓</span></td>
+            <td><span class="icon-cross">✕</span></td>
+            <td><span class="icon-cross">✕</span></td>
+            <td class="clarity-col"><span class="icon-check">✓</span></td>
+          </tr>
+          <tr>
+            <td>Deepfakes in remote interviews</td>
+            <td><span class="icon-cross">✕</span></td>
+            <td><span class="icon-cross">✕</span></td>
+            <td><span class="icon-cross">✕</span></td>
+            <td class="clarity-col"><span class="icon-check">✓</span></td>
+          </tr>
+          <tr>
+            <td>Hiring mules</td>
+            <td><span class="icon-cross">✕</span></td>
+            <td><span class="icon-cross">✕</span></td>
+            <td><span class="icon-cross">✕</span></td>
+            <td class="clarity-col"><span class="icon-check">✓</span></td>
+          </tr>
+          <tr>
+            <td>Stolen identity</td>
+            <td><span class="icon-cross">✕</span></td>
+            <td><span class="icon-cross">✕</span></td>
+            <td><span class="icon-check">✓</span></td>
+            <td class="clarity-col"><span class="icon-check">✓</span></td>
+          </tr>
+          <tr>
+            <td>Workforce fraud</td>
+            <td><span class="icon-cross">✕</span></td>
+            <td><span class="icon-cross">✕</span></td>
+            <td><span class="icon-cross">✕</span></td>
+            <td class="clarity-col"><span class="icon-check">✓</span></td>
+          </tr>
+
+          <!-- COVERAGE ROW -->
+          <tr class="coverage-row">
+            <td>
+              <span class="coverage-label">Coverage</span>
+            </td>
+            <td>
+              <span class="coverage-label">1 / 5</span>
+              <div class="coverage-bar-wrap">
+                <div class="coverage-bar-track"><div class="coverage-bar-fill" style="width:20%"></div></div>
+              </div>
+            </td>
+            <td>
+              <span class="coverage-label">1 / 5</span>
+              <div class="coverage-bar-wrap">
+                <div class="coverage-bar-track"><div class="coverage-bar-fill" style="width:20%"></div></div>
+              </div>
+            </td>
+            <td>
+              <span class="coverage-label">2 / 5</span>
+              <div class="coverage-bar-wrap">
+                <div class="coverage-bar-track"><div class="coverage-bar-fill" style="width:40%"></div></div>
+              </div>
+            </td>
+            <td class="clarity-col">
+              <span class="coverage-label" style="color:rgba(255,255,255,0.5);">5 / 5</span>
+              <div class="coverage-bar-wrap">
+                <div class="coverage-bar-track" style="background:rgba(255,255,255,0.15)"><div class="coverage-bar-fill" style="width:100%"></div></div>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- STAT STRIP -->
+    <div class="stat-strip">
+      <div class="stat-card">
+        <span class="stat-num">4×</span>
+        <span class="stat-label">More coverage than nearest competitor</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-num">5 / 5</span>
+        <span class="stat-label">Risks covered — the only platform with full-spectrum protection</span>
+      </div>
+      <div class="stat-card accent">
+        <span class="stat-num">0</span>
+        <span class="stat-label">Other vendors cover deepfakes, hiring mules, and workforce fraud simultaneously</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <div class="footer-logo">
+      <svg viewBox="0 0 56 56" fill="none"><path d="M39.48 16.28L32.35 0L27.81 10.48L33.1 22.71L45.23 28.05L55.63 23.47L39.48 16.28Z" fill="currentColor"/><path d="M39.48 39.81L55.62 32.62L45.24 28.05L33.11 33.38L27.81 45.62L32.35 56.1L39.48 39.81Z" fill="currentColor"/><path d="M16.15 39.82L23.28 56.1L27.82 45.62L22.53 33.39L10.4 28.05L0 32.62L16.15 39.82Z" fill="currentColor"/><path d="M16.15 16.28L0 23.48L10.39 28.05L22.52 22.71L27.81 10.48L23.28 0L16.15 16.28Z" fill="currentColor"/></svg>
+      <span>Clarity</span>
+    </div>
+    <p>getclarity.ai &nbsp;·&nbsp; michael@getclarity.ai</p>
+  </div>
+
+</div>
+</body>
+</html>
